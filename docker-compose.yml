@@ -1,0 +1,8 @@
+services:
+  bot:
+    build: .
+    container_name: sale_scraper
+    env_file: .env
+    volumes:
+      - ./data:/app/data   # persiste sessão do userbot, SQLite e logs
+    restart: unless-stopped
