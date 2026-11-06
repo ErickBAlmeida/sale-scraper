@@ -1,5 +1,6 @@
 """Handlers de comando do bot de notificação (python-telegram-bot)."""
 import asyncio
+import html
 import logging
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -107,7 +108,7 @@ async def list_kw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not kws:
         await update.message.reply_text("Você ainda não tem alertas. Use /add <palavra>.")
         return
-    lines = [f"{i + 1}. {k.raw_term}" for i, k in enumerate(kws)]
+    lines = [f"{i + 1}. {html.escape(k.raw_term)}" for i, k in enumerate(kws)]
     await update.message.reply_text("🔖 <b>Seus alertas:</b>\n" + "\n".join(lines),
                                     parse_mode=ParseMode.HTML)
 
@@ -179,7 +180,10 @@ async def sources(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not srcs:
         await update.message.reply_text("Nenhum canal monitorado ainda.")
         return
-    lines = [f"• @{s.channel}" + (f" — {s.title}" if s.title else "") for s in srcs]
+    lines = [
+        f"• @{html.escape(s.channel)}" + (f" — {html.escape(s.title)}" if s.title else "")
+        for s in srcs
+    ]
     await update.message.reply_text("📡 <b>Canais monitorados:</b>\n" + "\n".join(lines),
                                     parse_mode=ParseMode.HTML)
 
