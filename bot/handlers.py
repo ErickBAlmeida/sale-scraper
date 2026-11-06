@@ -2,6 +2,7 @@
 import asyncio
 import html
 import logging
+from datetime import datetime
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
@@ -14,6 +15,7 @@ from telegram.ext import (
 )
 
 from core.price import format_brl, split_max_price
+from core.timeutils import format_duration, now
 from core.validation import validate_keyword
 
 log = logging.getLogger("bot")
@@ -306,6 +308,61 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(f"📢 Enviado para {sent} usuário(s).")
 
 
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Saúde da aplicação (admin). Se o bot estiver fora do ar, não há resposta."""
+    if not _is_admin(update, context):
+        await update.message.reply_text("⛔ Comando restrito ao administrador.")
+        return
+    cfg = _cfg(context)
+    db = _db(context)
+    listener = context.application.bot_data["listener"]
+    current = now(cfg.timezone)
+
+    def ago(dt) -> str:
+        return f"há {format_duration((current - dt).total_seconds())}"
+
+    connected = listener.is_connected()
+    st = db.global_stats()
+    srcs = db.list_sources(active_only=True)
+
+    lines = [
+        "🟢 <b>Sale Scraper no ar</b>",
+        f"⏱️ Ligado {ago(listener.started_at)} "
+        f"(desde {listener.started_at.strftime('%d/%m %H:%M')})",
+        f"📡 Listener: {'conectado ✅' if connected else 'DESCONECTADO ⚠️'}",
+        "",
+        "<b>Desde que ligou</b>",
+        f"📨 Mensagens dos canais: {listener.msgs_received}",
+        f"🔔 Alertas enviados: {listener.alerts_sent}"
+        + (f" (⚠️ {listener.alerts_failed} falharam)" if listener.alerts_failed else ""),
+        "",
+        f"<b>Canais ({len(srcs)})</b>",
+    ]
+    for s in srcs:
+        n = listener.msgs_by_channel.get(s.channel, 0)
+        last = listener.last_msg_by_channel.get(s.channel)
+        when = f"última {ago(last)}" if last else "nenhuma ainda"
+        lines.append(f"• @{html.escape(s.channel)}: {n} msg ({when})")
+    if not srcs:
+        lines.append("Nenhum canal monitorado.")
+
+    last_alert = st["last_alert_at"]
+    if last_alert:
+        last_alert = ago(datetime.fromisoformat(last_alert))
+    lines += [
+        "",
+        "<b>Geral</b>",
+        f"👥 Usuários ativos: {st['users_active']}"
+        + (f" ({st['users_paused']} pausados)" if st["users_paused"] else "")
+        + (f" · {st['users_inactive']} bloquearam o bot" if st["users_inactive"] else ""),
+        f"🔖 Palavras-chave: {st['keywords']}"
+        + (f" ({st['keywords_with_price']} com preço máximo)" if st["keywords_with_price"] else ""),
+        f"🔔 Alertas: {st['alerts_today']} hoje · {st['alerts_total']} no total",
+        f"🕒 Último alerta: {last_alert or 'nenhum'}",
+    ]
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
 # ---------------- erro global ----------------
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     log.exception("Erro não tratado em handler", exc_info=context.error)
@@ -331,6 +388,7 @@ def register_handlers(application: Application, db, config, listener) -> None:
     application.add_handler(CommandHandler("source_add", source_add))
     application.add_handler(CommandHandler("source_remove", source_remove))
     application.add_handler(CommandHandler("broadcast", broadcast))
+    application.add_handler(CommandHandler("status", status))
 
     application.add_handler(CallbackQueryHandler(on_callback))
     application.add_error_handler(on_error)

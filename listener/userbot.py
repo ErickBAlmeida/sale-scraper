@@ -28,6 +28,16 @@ class Listener:
         self.config = config
         self.bot = bot
         self._send_lock = asyncio.Lock()
+        # Contadores desde que o processo iniciou (zeram a cada restart). Usados no /status.
+        self.started_at = now(config.timezone)
+        self.msgs_received = 0
+        self.msgs_by_channel: dict = {}   # canal -> quantidade
+        self.last_msg_by_channel: dict = {}  # canal -> datetime da última mensagem
+        self.alerts_sent = 0
+        self.alerts_failed = 0
+
+    def is_connected(self) -> bool:
+        return self.client.is_connected()
 
     def register(self) -> None:
         self.client.add_event_handler(self._on_new_message, events.NewMessage())
@@ -55,9 +65,8 @@ class Listener:
 
     async def _on_new_message(self, event) -> None:
         try:
-            text = event.raw_text or ""
-            if not text.strip():
-                return
+            if not event.is_channel and not event.is_group:
+                return  # conversas privadas do userbot não interessam
             chat = await event.get_chat()
             username = getattr(chat, "username", None)
             if not username:
@@ -65,6 +74,12 @@ class Listener:
             src = self.db.get_active_source_by_username(username)
             if not src:
                 return
+            self.msgs_received += 1
+            self.msgs_by_channel[src.channel] = self.msgs_by_channel.get(src.channel, 0) + 1
+            self.last_msg_by_channel[src.channel] = now(self.config.timezone)
+            text = event.raw_text or ""
+            if not text.strip():
+                return  # só mídia, sem texto para comparar
             await self._dispatch(text, src.channel, username, event.message.id)
         except Exception:  # noqa: BLE001 - um update com erro não pode derrubar o processo
             log.exception("Erro ao processar mensagem recebida")
@@ -88,7 +103,10 @@ class Listener:
                 label += f" (até {format_brl(m.max_price)})"
             ok = await self._send_alert(m.chat_id, label, channel, text, link)
             if ok:
+                self.alerts_sent += 1
                 self.db.record_sent(m.user_id, ohash, channel, link)
+            else:
+                self.alerts_failed += 1
             log.info(
                 "match user=%s term=%s price=%s max=%s channel=@%s sent=%s",
                 m.user_id, m.term, price, m.max_price, channel, ok,

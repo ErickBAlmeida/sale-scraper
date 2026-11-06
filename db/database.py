@@ -323,6 +323,25 @@ class Database:
             ) or 0
             return today, total
 
+    def global_stats(self) -> dict:
+        """Totais da aplicação inteira (para o /status do admin)."""
+        today_prefix = now(self.tz).strftime("%Y-%m-%d")
+
+        def count(model, *where):
+            return s.scalar(select(func.count()).select_from(model).where(*where)) or 0
+
+        with self.Session() as s:
+            return {
+                "users_active": count(User, User.is_active == 1),
+                "users_paused": count(User, User.is_active == 1, User.is_paused == 1),
+                "users_inactive": count(User, User.is_active == 0),
+                "keywords": count(Keyword),
+                "keywords_with_price": count(Keyword, Keyword.max_price.is_not(None)),
+                "alerts_today": count(SentAlert, SentAlert.sent_at.like(today_prefix + "%")),
+                "alerts_total": count(SentAlert),
+                "last_alert_at": s.scalar(select(func.max(SentAlert.sent_at))),
+            }
+
     # ---------------- fontes (canais monitorados) ----------------
     def add_source(self, channel: str, title: Optional[str]) -> None:
         channel = channel.lower()
