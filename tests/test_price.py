@@ -84,30 +84,30 @@ def test_add_keyword_with_price_and_update(db):
     assert kw.max_price is None
 
 
-def test_find_matches_respects_max_price(db):
+def test_find_match_respects_max_price(db):
     uid = _user(db)
     db.add_keyword(uid, "ryzen 5 5500", "Ryzen 5 5500", 10, 500.0)
     text = normalize("Processador AMD Ryzen 5 5500")
-    assert db.find_matches(text, 499.0)
-    assert db.find_matches(text, 500.0)
-    assert not db.find_matches(text, 546.0)
-    assert not db.find_matches(text, None)       # post sem preço
+    assert db.find_match_for_user(uid, text, 499.0)
+    assert db.find_match_for_user(uid, text, 500.0)
+    assert not db.find_match_for_user(uid, text, 546.0)
+    assert not db.find_match_for_user(uid, text, None)       # post sem preço
 
 
-def test_find_matches_without_max_price_ignores_price(db):
+def test_find_match_without_max_price_ignores_price(db):
     uid = _user(db)
     db.add_keyword(uid, "monitor", "monitor", 10, None)
     text = normalize("Monitor Gamer AOC")
-    assert db.find_matches(text, 9999.0)
-    assert db.find_matches(text, None)
+    assert db.find_match_for_user(uid, text, 9999.0)
+    assert db.find_match_for_user(uid, text, None)
 
 
-def test_find_matches_falls_back_to_other_keyword(db):
+def test_find_match_falls_back_to_other_keyword(db):
     """Se a primeira palavra casa mas estoura o preço, outra palavra ainda pode alertar."""
     uid = _user(db)
     db.add_keyword(uid, "ryzen 5 5500", "Ryzen 5 5500", 10, 500.0)
     db.add_keyword(uid, "b550m", "B550M", 10, None)
-    [m] = db.find_matches(normalize("Kit Ryzen 5 5500 + B550M"), 900.0)
+    m = db.find_match_for_user(uid, normalize("Kit Ryzen 5 5500 + B550M"), 900.0)
     assert m.term == "b550m"
 
 

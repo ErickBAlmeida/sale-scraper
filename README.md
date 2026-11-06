@@ -9,36 +9,43 @@ Dois componentes no mesmo processo Python/asyncio:
 
 | Componente | Lib | Papel |
 |---|---|---|
-| **Listener (userbot)** | Telethon (MTProto) | Entra nos canais-fonte e captura cada nova mensagem |
-| **Notifier (bot)** | python-telegram-bot | Comandos do usuário + envio dos alertas |
+| **Listeners (contas dos usuários)** | Telethon (MTProto) | Um por usuário: lê os canais que **ele** cadastrou, **com a conta dele** |
+| **Notifier (bot)** | python-telegram-bot | Comandos, login das contas e envio dos alertas |
 
-> ⚠️ O Bot API **não lê** canais públicos de terceiros. Por isso o listener usa
-> uma **conta de usuário** (userbot). Use um número dedicado e sem spam
-> (área cinzenta dos ToS do Telegram).
+> ⚠️ O Bot API **não lê** canais públicos de terceiros. Por isso cada usuário
+> conecta a **própria conta** do Telegram (`/login`) e o bot lê os canais com ela.
+> Contas automatizadas ficam numa área cinzenta dos ToS do Telegram — cada
+> usuário assume esse risco para a própria conta.
 
 ```
-bot/        handlers de comando (PTB)
-listener/   userbot Telethon + dispatch de alertas
-core/       normalização, matching, validação, tempo
-db/         modelos + repositório (SQLAlchemy/SQLite)
+bot/        handlers de comando (PTB) + login.py (/login, /logout)
+listener/   manager.py (uma conexão por conta) + userbot.py (listener de uma conta)
+core/       normalização, matching, preço, validação, tempo, criptografia
+db/         modelos + repositório (SQLAlchemy/SQLite) + migrações automáticas
 config.py   carrega .env
-main.py     sobe listener + bot juntos
-tests/      testes do core
+main.py     sobe bot + contas juntos
+tests/      testes (pytest)
 ```
 
 ## Pré-requisitos
 
 1. **Token do bot**: fale com o [@BotFather](https://t.me/BotFather) → `/newbot` → copie o token.
-2. **API do userbot**: acesse <https://my.telegram.org> → *API development tools* → copie `api_id` e `api_hash`.
+2. **API do Telegram**: acesse <https://my.telegram.org> → *API development tools* → copie `api_id` e `api_hash`
+   (um único app serve para todas as contas dos usuários).
 3. **Seu id**: fale com o [@userinfobot](https://t.me/userinfobot) para obter o `OWNER_ID`.
-4. Copie `.env.example` para `.env` e preencha os valores.
+4. **Chave das sessões** (`SESSION_KEY`), que criptografa as sessões salvas:
+   ```bash
+   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+   ```
+   ⚠️ Guarde bem: se perder ou trocar a chave, todos os usuários precisam refazer `/login`.
+5. Copie `.env.example` para `.env` e preencha os valores.
 
-## Rodando localmente (primeira vez — autenticação do userbot)
+## Rodando
 
-A primeira execução pede o **telefone e o código SMS** da conta do userbot para
-criar o arquivo de sessão (`data/userbot.session`). Faça isso num terminal
-interativo:
+Não há mais login no terminal: todo mundo, inclusive o admin, conecta a conta pelo
+`/login` dentro do bot.
 
+**Local:**
 ```bash
 python -m venv .venv
 # Windows PowerShell:  .venv\Scripts\Activate.ps1
@@ -47,37 +54,49 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Depois do primeiro login, a sessão fica salva e não pede mais código.
-
-## Rodando com Docker (produção 24/7)
-
-Autentique uma vez interativamente (para gerar a sessão) e depois suba em background:
-
+**Docker:**
 ```bash
-# 1ª vez — interativo, para digitar telefone/código:
-docker compose run --rm bot python main.py
-# Ctrl+C depois do "Bot e listener em execução."
-
-# Produção:
-docker compose up -d
+docker compose up -d --build
 docker compose logs -f
 ```
 
-O volume `./data` persiste sessão, banco SQLite e logs entre reinícios.
+O volume `./data` persiste banco SQLite (com as sessões criptografadas) e logs.
 `restart: "no"`: o container **não** inicia sozinho (nem após reboot ou crash).
 Suba manualmente com `docker compose up -d` ou pelo ▶ no Docker Desktop.
 Para rodar 24/7 sem supervisão, troque para `restart: unless-stopped`.
 
+**Migração de instalações antigas:** na primeira execução desta versão, os canais
+que eram globais passam a ser do admin, e o arquivo `data/userbot.session` (se existir)
+vira a conta do admin automaticamente — sem precisar refazer o login.
+
 ## Uso
 
-**Usuário:**
-`/start`, `/add rtx 4070`, `/list`, `/remove 2`, `/clear`, `/pause`, `/resume`,
-`/settings`, `/sources`, `/stats`, `/help`.
+1. `/start` e `/login` — toque em **📱 Compartilhar meu número**, receba o código no
+   Telegram e digite-o **com espaços** (`1 2 3 4 5`; sem espaços o Telegram bloqueia o código).
+   Se a conta tiver verificação em duas etapas, o bot pede a senha. As mensagens com
+   código e senha são apagadas na hora.
+2. `/source_add @canal` — monitora um canal público (a sua conta entra nele, se ainda não segue).
+3. `/add rtx 4070` ou `/add ryzen 5 5500 <500` (com preço máximo).
 
-**Admin (`OWNER_ID`):**
-`/source_add @canal` — passa a monitorar o canal (o userbot entra nele).
-`/source_remove @canal` — para de monitorar.
-`/broadcast <msg>` — avisa todos os usuários.
+**Demais comandos:** `/list`, `/remove 2`, `/clear`, `/pause`, `/resume`, `/settings`,
+`/sources`, `/source_remove @canal`, `/stats`, `/logout`, `/help`.
+Sem conta conectada, só `/start`, `/help` e `/login` funcionam.
+
+`/source_remove` só faz a sua conta sair do canal se foi o bot que entrou nele;
+canais que você já seguia continuam seguidos.
+
+**Admin (`OWNER_ID`):** `/status` (saúde do bot e das contas) e `/broadcast <msg>`.
+
+**Desconectar:** `/logout` encerra a sessão no Telegram. Também dá para encerrar em
+Telegram > Configurações > Dispositivos — o bot detecta em até 5 min e avisa o usuário.
+
+## Segurança
+
+- Sessões das contas ficam criptografadas (Fernet) no banco; a chave fica só no `.env`.
+  Quem tiver `.env` + `data/` tem acesso às contas conectadas: proteja os dois.
+- Telefone, código, senha e sessão nunca vão para o log.
+- O bot só aceita conectar o **próprio** número de quem pediu o `/login`.
+- `MAX_ACCOUNTS` e `MAX_SOURCES` no `.env` limitam contas conectadas e canais por usuário.
 
 ## Testes
 
@@ -90,4 +109,4 @@ pytest -q
 
 **Oracle Cloud — Always Free VM** (ARM, nunca dorme, disco persistente) rodando
 o `docker compose`. Alternativas: Raspberry Pi em casa, Fly.io, VPS Hetzner/Contabo.
-Faça backup periódico de `data/*.sqlite` e `data/*.session`.
+Faça backup periódico de `data/*.sqlite` **e** do `.env` (sem a `SESSION_KEY` o backup não serve).

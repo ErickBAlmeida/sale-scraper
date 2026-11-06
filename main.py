@@ -1,9 +1,9 @@
-"""Ponto de entrada: sobe o bot de notificação (PTB) e o listener (Telethon)
-no mesmo event loop asyncio.
+"""Ponto de entrada: sobe o bot de notificação (PTB) e as contas dos usuários
+(Telethon, uma por usuário, via ClientManager) no mesmo event loop asyncio.
 
-Primeira execução: o Telethon pedirá o número de telefone e o código SMS da
-conta do userbot (uma única vez) para criar o arquivo de sessão. Rode-o
-interativamente na primeira vez (veja o README).
+Cada usuário conecta a própria conta pelo /login no bot. Não há mais login
+interativo no terminal: a sessão antiga do admin (SESSION_NAME.session), se
+existir, é migrada automaticamente para a conta dele na primeira execução.
 """
 import asyncio
 import logging
@@ -12,12 +12,38 @@ import signal
 from logging.handlers import RotatingFileHandler
 
 from telegram.ext import Application
-from telethon import TelegramClient
+from telethon.sessions import SQLiteSession, StringSession
 
 from bot.handlers import register_handlers
 from config import load_config
+from core.crypto import SessionCipher
 from db.database import Database
-from listener.userbot import Listener
+from listener.manager import ClientManager
+
+
+def migrate_admin_session(cfg, db: Database, cipher: SessionCipher, log) -> None:
+    """Converte o arquivo de sessão do userbot antigo em conta do admin (uma vez só).
+
+    Conversão offline (só lê o arquivo, sem conectar): conectar aqui abriria uma
+    segunda conexão com a mesma chave, o que pode fazer o Telegram invalidá-la.
+    A validade da sessão é conferida depois, pelo ClientManager.
+    """
+    session_file = cfg.session_name + ".session"
+    if not os.path.exists(session_file):
+        return
+    admin = db.get_or_create_user(cfg.owner_id, None)
+    if db.get_account(admin.id) is not None:
+        return
+    old = SQLiteSession(cfg.session_name)
+    try:
+        if old.auth_key is None:
+            log.warning("Sessão antiga %s sem autorização; admin precisa usar /login", session_file)
+            return
+        session_str = StringSession.save(old)
+    finally:
+        old.close()
+    db.save_account(admin.id, cfg.owner_id, "conta migrada", cipher.encrypt(session_str))
+    log.info("Migração: sessão antiga (%s) virou a conta do admin", session_file)
 
 
 def setup_logging(cfg) -> None:
@@ -50,24 +76,22 @@ async def run() -> None:
     log = logging.getLogger("main")
 
     db = Database(cfg.db_path, cfg.timezone)
-    db.init()
+    db.init(owner_chat_id=cfg.owner_id)
+    cipher = SessionCipher(cfg.session_key)
+    migrate_admin_session(cfg, db, cipher, log)
 
     application = Application.builder().token(cfg.bot_token).build()
-    client = TelegramClient(cfg.session_name, cfg.api_id, cfg.api_hash)
-    listener = Listener(client, db, cfg, application.bot)
-    register_handlers(application, db, cfg, listener)
-
-    # Userbot: conecta (pode pedir telefone/código na 1ª vez).
-    await client.start()
-    listener.register()
+    manager = ClientManager(db, cfg, application.bot, cipher)
+    register_handlers(application, db, cfg, manager, cipher)
 
     # Bot de notificação.
     await application.initialize()
     await application.start()
     await application.updater.start_polling(drop_pending_updates=True)
 
-    await listener.join_all_sources()
-    log.info("✅ Bot e listener em execução.")
+    # Contas dos usuários (uma conexão por conta).
+    await manager.start_all()
+    log.info("✅ Bot e listeners em execução.")
     try:
         await application.bot.send_message(cfg.owner_id, "✅ Sale Scraper iniciado.")
     except Exception:  # noqa: BLE001
@@ -106,7 +130,7 @@ async def run() -> None:
             application.updater.stop,
             application.stop,
             application.shutdown,
-            client.disconnect,
+            manager.stop_all,
         ):
             try:
                 await shutdown()

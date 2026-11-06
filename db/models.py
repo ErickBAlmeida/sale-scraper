@@ -1,7 +1,7 @@
 """Modelos SQLAlchemy 2.0 (esquema da seção 4.1 da spec)."""
 from typing import Optional
 
-from sqlalchemy import Float, Integer, String, UniqueConstraint
+from sqlalchemy import Float, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -36,13 +36,34 @@ class Keyword(Base):
 
 
 class Source(Base):
+    """Canal monitorado por UM usuário, lido com a conta dele."""
+
     __tablename__ = "sources"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    channel: Mapped[str] = mapped_column(String(128), unique=True)  # username sem @, lowercase
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    channel: Mapped[str] = mapped_column(String(128))  # username sem @, lowercase
     title: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
     status: Mapped[str] = mapped_column(String(16), default="active")  # active | error | removed
+    # 1 = o bot fez a conta entrar no canal (sai ao remover); 0 = o usuário já seguia (não sai)
+    joined_by_bot: Mapped[int] = mapped_column(Integer, default=0)
     added_at: Mapped[str] = mapped_column(String(40))
+
+    __table_args__ = (UniqueConstraint("user_id", "channel", name="uq_user_channel"),)
+
+
+class Account(Base):
+    """Conta do Telegram conectada por um usuário via /login."""
+
+    __tablename__ = "accounts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, unique=True, index=True)
+    tg_user_id: Mapped[int] = mapped_column(Integer)
+    phone_masked: Mapped[str] = mapped_column(String(32))          # nunca o número completo
+    session_enc: Mapped[str] = mapped_column(Text)                  # StringSession criptografada
+    status: Mapped[str] = mapped_column(String(16), default="active")  # active | revoked
+    created_at: Mapped[str] = mapped_column(String(40))
 
 
 class SentAlert(Base):

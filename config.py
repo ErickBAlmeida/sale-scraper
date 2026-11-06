@@ -29,6 +29,9 @@ class Config:
     timezone: str
     max_keywords: int
     dedup_window_hours: int
+    session_key: str      # chave Fernet que criptografa as sessões das contas dos usuários
+    max_accounts: int     # quantas contas podem ficar conectadas ao mesmo tempo
+    max_sources: int      # canais por usuário
 
 
 def load_config() -> Config:
@@ -43,4 +46,7 @@ def load_config() -> Config:
         timezone=os.getenv("TIMEZONE", "America/Sao_Paulo"),
         max_keywords=int(os.getenv("MAX_KEYWORDS", "10")),
         dedup_window_hours=int(os.getenv("DEDUP_WINDOW_HOURS", "24")),
+        session_key=_require("SESSION_KEY"),
+        max_accounts=int(os.getenv("MAX_ACCOUNTS", "20")),
+        max_sources=int(os.getenv("MAX_SOURCES", "20")),
     )
