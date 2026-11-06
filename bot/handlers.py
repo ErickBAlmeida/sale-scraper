@@ -42,7 +42,7 @@ HELP = (
     "/sources — seus canais monitorados\n\n"
     "<b>Alertas</b>\n"
     "/add &lt;palavra&gt; — cadastra um alerta (ex.: <code>/add air fryer</code>)\n"
-    "   com preço máximo: <code>/add ryzen 5 5500 &lt;500</code> (só avisa até R$ 500)\n"
+    "   com preço máximo: <code>/add iphone 18 &lt;10000</code> (só avisa até R$ 10000)\n"
     "/list — lista seus alertas\n"
     "/remove &lt;nº|palavra&gt; — remove um alerta\n"
     "/clear — apaga todos os alertas\n"
@@ -120,7 +120,7 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     usage = (
         "Uso: /add <palavra-chave> [<preço máximo]\n"
         "Ex.: /add rtx 4070\n"
-        "Ex.: /add ryzen 5 5500 <500"
+        "Ex.: /add iphone 18 <10000"
     )
     full = " ".join(context.args).strip()
     if not full:
