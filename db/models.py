@@ -1,7 +1,7 @@
 """Modelos SQLAlchemy 2.0 (esquema da seção 4.1 da spec)."""
 from typing import Optional
 
-from sqlalchemy import Integer, String, UniqueConstraint
+from sqlalchemy import Float, Integer, String, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -29,6 +29,7 @@ class Keyword(Base):
     user_id: Mapped[int] = mapped_column(Integer, index=True)
     term: Mapped[str] = mapped_column(String(80), index=True)   # normalizado
     raw_term: Mapped[str] = mapped_column(String(80))           # como o usuário digitou
+    max_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # None = sem limite
     created_at: Mapped[str] = mapped_column(String(40))
 
     __table_args__ = (UniqueConstraint("user_id", "term", name="uq_user_term"),)

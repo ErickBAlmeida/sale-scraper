@@ -13,6 +13,7 @@ from telegram.ext import (
     ContextTypes,
 )
 
+from core.price import format_brl, split_max_price
 from core.validation import validate_keyword
 
 log = logging.getLogger("bot")
@@ -28,6 +29,7 @@ WELCOME = (
 HELP = (
     "<b>Comandos disponíveis</b>\n\n"
     "/add &lt;palavra&gt; — cadastra um alerta (ex.: <code>/add air fryer</code>)\n"
+    "   com preço máximo: <code>/add ryzen 5 5500 &lt;500</code> (só avisa até R$ 500)\n"
     "/list — lista seus alertas\n"
     "/remove &lt;nº|palavra&gt; — remove um alerta\n"
     "/clear — apaga todos os alertas\n"
@@ -77,9 +79,21 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    raw = " ".join(context.args).strip()
+    usage = (
+        "Uso: /add <palavra-chave> [<preço máximo]\n"
+        "Ex.: /add rtx 4070\n"
+        "Ex.: /add ryzen 5 5500 <500"
+    )
+    full = " ".join(context.args).strip()
+    if not full:
+        await update.message.reply_text(usage)
+        return
+    raw, max_price = split_max_price(full)
     if not raw:
-        await update.message.reply_text("Uso: /add <palavra-chave>\nEx.: /add rtx 4070")
+        await update.message.reply_text("❌ Informe o item antes do preço.\n" + usage)
+        return
+    if max_price is not None and max_price <= 0:
+        await update.message.reply_text("❌ O preço máximo precisa ser maior que zero.")
         return
     term, err = validate_keyword(raw)
     if err:
@@ -87,17 +101,23 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     u = update.effective_user
     user = _db(context).get_or_create_user(u.id, u.username)
-    status = _db(context).add_keyword(user.id, term, raw, _cfg(context).max_keywords)
+    status = _db(context).add_keyword(
+        user.id, term, raw, _cfg(context).max_keywords, max_price
+    )
+    limit = f" até {format_brl(max_price)}" if max_price is not None else ""
     if status == "limit":
         await update.message.reply_text(
             f"❌ Você atingiu o limite de {_cfg(context).max_keywords} alertas. "
             f"Use /remove para liberar espaço."
         )
     elif status == "dup":
-        await update.message.reply_text(f'ℹ️ Você já tem um alerta para "{raw}".')
+        await update.message.reply_text(f'ℹ️ Você já tem um alerta para "{raw}"{limit}.')
+    elif status == "updated":
+        novo = f"preço máximo {format_brl(max_price)}" if max_price is not None else "sem limite de preço"
+        await update.message.reply_text(f'🔄 Alerta "{raw}" atualizado: {novo}.')
     else:
         await update.message.reply_text(
-            f'✅ Alerta "{raw}" criado. Vou te avisar quando aparecer em uma oferta.'
+            f'✅ Alerta "{raw}"{limit} criado. Vou te avisar quando aparecer em uma oferta.'
         )
 
 
@@ -108,7 +128,11 @@ async def list_kw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not kws:
         await update.message.reply_text("Você ainda não tem alertas. Use /add <palavra>.")
         return
-    lines = [f"{i + 1}. {html.escape(k.raw_term)}" for i, k in enumerate(kws)]
+    lines = [
+        f"{i + 1}. {html.escape(k.raw_term)}"
+        + (f" — até {format_brl(k.max_price)}" if k.max_price is not None else "")
+        for i, k in enumerate(kws)
+    ]
     await update.message.reply_text("🔖 <b>Seus alertas:</b>\n" + "\n".join(lines),
                                     parse_mode=ParseMode.HTML)
 

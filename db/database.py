@@ -8,11 +8,12 @@ import os
 from dataclasses import dataclass
 from typing import List, Optional
 
-from sqlalchemy import create_engine, delete, func, select
+from sqlalchemy import create_engine, delete, func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from core.matching import matches as term_matches
+from core.price import split_max_price, within_max
 from core.text import normalize
 from core.timeutils import now, now_iso
 from db.models import Base, Keyword, SentAlert, Source, User
@@ -36,6 +37,7 @@ class KeywordDTO:
     id: int
     term: str
     raw_term: str
+    max_price: Optional[float] = None
 
 
 @dataclass
@@ -53,6 +55,7 @@ class MatchDTO:
     raw_term: str
     quiet_start: Optional[str]
     quiet_end: Optional[str]
+    max_price: Optional[float] = None
 
 
 def _user_dto(u: User) -> UserDTO:
@@ -74,6 +77,34 @@ class Database:
 
     def init(self) -> None:
         Base.metadata.create_all(self.engine)
+        self._migrate_max_price()
+
+    def _migrate_max_price(self) -> None:
+        """Bancos criados antes do filtro de preço: cria a coluna keywords.max_price
+        e converte palavras salvas como "item <500" para item + preço máximo."""
+        with self.engine.begin() as conn:
+            cols = {row[1] for row in conn.execute(text("PRAGMA table_info(keywords)"))}
+            if "max_price" in cols:
+                return
+            conn.execute(text("ALTER TABLE keywords ADD COLUMN max_price REAL"))
+            log.info("Migração: coluna keywords.max_price criada")
+            rows = conn.execute(text("SELECT id, user_id, raw_term FROM keywords")).all()
+            for kid, uid, raw in rows:
+                item, max_price = split_max_price(raw)
+                if max_price is None or not item:
+                    continue
+                term = normalize(item)
+                taken = conn.execute(
+                    text("SELECT 1 FROM keywords WHERE user_id = :u AND term = :t AND id != :i"),
+                    {"u": uid, "t": term, "i": kid},
+                ).first()
+                if taken:
+                    continue  # já existe o mesmo item sem preço; deixa como está
+                conn.execute(
+                    text("UPDATE keywords SET term = :t, raw_term = :r, max_price = :p WHERE id = :i"),
+                    {"t": term, "r": item, "p": max_price, "i": kid},
+                )
+                log.info("Migração: '%s' -> '%s' (máx. %s)", raw, item, max_price)
 
     # ---------------- usuários ----------------
     def get_or_create_user(self, chat_id: int, username: Optional[str]) -> UserDTO:
@@ -134,20 +165,40 @@ class Database:
                 select(func.count()).select_from(Keyword).where(Keyword.user_id == user_id)
             ) or 0
 
-    def add_keyword(self, user_id: int, term: str, raw: str, max_keywords: int) -> str:
-        """Retorna 'ok', 'dup' ou 'limit'."""
+    def add_keyword(
+        self,
+        user_id: int,
+        term: str,
+        raw: str,
+        max_keywords: int,
+        max_price: Optional[float] = None,
+    ) -> str:
+        """Retorna 'ok', 'dup', 'updated' (mesmo item, novo preço máximo) ou 'limit'."""
         with self.Session() as s:
-            exists = s.scalar(
-                select(Keyword.id).where(Keyword.user_id == user_id, Keyword.term == term)
+            existing = s.scalar(
+                select(Keyword).where(Keyword.user_id == user_id, Keyword.term == term)
             )
-            if exists:
-                return "dup"
+            if existing:
+                if existing.max_price == max_price:
+                    return "dup"
+                existing.max_price = max_price
+                existing.raw_term = raw
+                s.commit()
+                return "updated"
             count = s.scalar(
                 select(func.count()).select_from(Keyword).where(Keyword.user_id == user_id)
             ) or 0
             if count >= max_keywords:
                 return "limit"
-            s.add(Keyword(user_id=user_id, term=term, raw_term=raw, created_at=now_iso(self.tz)))
+            s.add(
+                Keyword(
+                    user_id=user_id,
+                    term=term,
+                    raw_term=raw,
+                    max_price=max_price,
+                    created_at=now_iso(self.tz),
+                )
+            )
             try:
                 s.commit()
             except IntegrityError:
@@ -160,7 +211,7 @@ class Database:
             rows = s.scalars(
                 select(Keyword).where(Keyword.user_id == user_id).order_by(Keyword.id)
             ).all()
-            return [KeywordDTO(k.id, k.term, k.raw_term) for k in rows]
+            return [KeywordDTO(k.id, k.term, k.raw_term, k.max_price) for k in rows]
 
     def remove_keyword(self, user_id: int, arg: str) -> bool:
         """Remove por número (ordem do /list) ou pela própria palavra."""
@@ -171,7 +222,7 @@ class Database:
             if 0 <= idx < len(kws):
                 target = kws[idx]
         if target is None:
-            narg = normalize(arg)
+            narg = normalize(split_max_price(arg)[0])  # aceita "/remove ryzen 5 5500 <500"
             for k in kws:
                 if k.term == narg:
                     target = k
@@ -193,8 +244,13 @@ class Database:
             return n
 
     # ---------------- matching ----------------
-    def find_matches(self, normalized_text: str) -> List[MatchDTO]:
+    def find_matches(
+        self, normalized_text: str, price: Optional[float] = None
+    ) -> List[MatchDTO]:
         """Usuários ativos/não-pausados cuja alguma palavra-chave casa o texto.
+
+        `price` é o preço da oferta (None = post sem preço). Palavras com preço
+        máximo só casam se o preço for conhecido e estiver dentro do limite.
 
         Dedup por usuário: retorna no máximo uma entrada por usuário
         (a primeira palavra que deu match).
@@ -205,6 +261,7 @@ class Database:
                     Keyword.user_id,
                     Keyword.term,
                     Keyword.raw_term,
+                    Keyword.max_price,
                     User.chat_id,
                     User.quiet_start,
                     User.quiet_end,
@@ -216,9 +273,15 @@ class Database:
         for r in rows:
             if r.user_id in seen:
                 continue
-            if term_matches(normalized_text, r.term):
+            if term_matches(normalized_text, r.term) and within_max(price, r.max_price):
                 seen[r.user_id] = MatchDTO(
-                    r.user_id, r.chat_id, r.term, r.raw_term, r.quiet_start, r.quiet_end
+                    r.user_id,
+                    r.chat_id,
+                    r.term,
+                    r.raw_term,
+                    r.quiet_start,
+                    r.quiet_end,
+                    r.max_price,
                 )
         return list(seen.values())
 

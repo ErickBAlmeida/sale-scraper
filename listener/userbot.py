@@ -11,6 +11,7 @@ from telethon import TelegramClient, events
 from telethon.tl.functions.channels import JoinChannelRequest, LeaveChannelRequest
 
 from core.matching import offer_hash
+from core.price import extract_price, format_brl
 from core.text import normalize
 from core.timeutils import in_quiet_hours, now
 
@@ -72,7 +73,8 @@ class Listener:
         norm = normalize(text)
         ohash = offer_hash(text, channel)
         link = f"https://t.me/{username}/{msg_id}"
-        recipients = self.db.find_matches(norm)
+        price = extract_price(text)
+        recipients = self.db.find_matches(norm, price)
         if not recipients:
             return
         current = now(self.config.timezone)
@@ -81,11 +83,15 @@ class Listener:
                 continue
             if self.db.already_sent(m.user_id, ohash):
                 continue
-            ok = await self._send_alert(m.chat_id, m.raw_term, channel, text, link)
+            label = m.raw_term
+            if m.max_price is not None:
+                label += f" (até {format_brl(m.max_price)})"
+            ok = await self._send_alert(m.chat_id, label, channel, text, link)
             if ok:
                 self.db.record_sent(m.user_id, ohash, channel, link)
             log.info(
-                "match user=%s term=%s channel=@%s sent=%s", m.user_id, m.term, channel, ok
+                "match user=%s term=%s price=%s max=%s channel=@%s sent=%s",
+                m.user_id, m.term, price, m.max_price, channel, ok,
             )
 
     async def _send_alert(self, chat_id: int, term: str, channel: str, text: str, link: str) -> bool:
