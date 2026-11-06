@@ -30,6 +30,7 @@ class UserDTO:
     is_paused: int
     quiet_start: Optional[str]
     quiet_end: Optional[str]
+    approval: str = "new"
 
 
 @dataclass
@@ -71,7 +72,10 @@ class MatchDTO:
 
 
 def _user_dto(u: User) -> UserDTO:
-    return UserDTO(u.id, u.chat_id, u.username, u.is_active, u.is_paused, u.quiet_start, u.quiet_end)
+    return UserDTO(
+        u.id, u.chat_id, u.username, u.is_active, u.is_paused, u.quiet_start, u.quiet_end,
+        u.approval or "new",
+    )
 
 
 def _source_dto(x: Source) -> SourceDTO:
@@ -97,8 +101,23 @@ class Database:
         `owner_chat_id`: id do admin no Telegram; recebe os canais que eram globais.
         """
         Base.metadata.create_all(self.engine)
+        self._migrate_user_approval()
         self._migrate_max_price()
         self._migrate_sources_per_user(owner_chat_id)
+
+    def _migrate_user_approval(self) -> None:
+        """Bancos anteriores à aprovação de acesso: só fica aprovado quem já conectou
+        uma conta. Quem só deu /start passa pelo pedido de aprovação na próxima vez
+        (o admin é sempre aprovado no primeiro uso)."""
+        with self.engine.begin() as conn:
+            cols = {row[1] for row in conn.execute(text("PRAGMA table_info(users)"))}
+            if "approval" in cols:
+                return
+            conn.execute(text("ALTER TABLE users ADD COLUMN approval VARCHAR(16) NOT NULL DEFAULT 'new'"))
+            n = conn.execute(
+                text("UPDATE users SET approval = 'approved' WHERE id IN (SELECT user_id FROM accounts)")
+            ).rowcount
+            log.info("Migração: coluna users.approval criada (%s usuário(s) com conta aprovados)", n)
 
     def _migrate_max_price(self) -> None:
         """Bancos criados antes do filtro de preço: cria a coluna keywords.max_price
@@ -220,8 +239,63 @@ class Database:
                 s.commit()
 
     def all_active_chat_ids(self) -> List[int]:
+        """Usuários aprovados que não bloquearam o bot (destino do /broadcast)."""
         with self.Session() as s:
-            return list(s.scalars(select(User.chat_id).where(User.is_active == 1)).all())
+            return list(
+                s.scalars(
+                    select(User.chat_id).where(User.is_active == 1, User.approval == "approved")
+                ).all()
+            )
+
+    def get_user(self, user_id: int) -> Optional[UserDTO]:
+        with self.Session() as s:
+            u = s.get(User, user_id)
+            return _user_dto(u) if u else None
+
+    def get_user_by_chat_id(self, chat_id: int) -> Optional[UserDTO]:
+        with self.Session() as s:
+            u = s.scalar(select(User).where(User.chat_id == chat_id))
+            return _user_dto(u) if u else None
+
+    def find_user(self, ref: str) -> Optional[UserDTO]:
+        """Usuário por id do Telegram ("123") ou @username."""
+        ref = ref.strip().lstrip("@")
+        with self.Session() as s:
+            if ref.isdigit():
+                u = s.scalar(select(User).where(User.chat_id == int(ref)))
+            else:
+                u = s.scalar(select(User).where(func.lower(User.username) == ref.lower()))
+            return _user_dto(u) if u else None
+
+    # ---------------- aprovação de acesso ----------------
+    def set_approval(self, user_id: int, approval: str) -> None:
+        with self.Session() as s:
+            u = s.get(User, user_id)
+            if u:
+                u.approval = approval
+                s.commit()
+
+    def list_users_by_approval(self, approval: str) -> List[UserDTO]:
+        with self.Session() as s:
+            rows = s.scalars(select(User).where(User.approval == approval).order_by(User.id)).all()
+            return [_user_dto(u) for u in rows]
+
+    def delete_user_data(self, user_id: int, keep_user_row: bool = False) -> dict:
+        """Apaga tudo do usuário: conta (sessão), canais, palavras e histórico de alertas.
+
+        `keep_user_row=True` mantém só o registro mínimo (id/username/aprovação) — usado
+        quando o admin revoga o acesso, para o pedido não voltar automaticamente.
+        """
+        with self.Session() as s:
+            counts = {}
+            for name, model in (
+                ("keywords", Keyword), ("sources", Source), ("alerts", SentAlert), ("account", Account)
+            ):
+                counts[name] = s.execute(delete(model).where(model.user_id == user_id)).rowcount
+            if not keep_user_row:
+                s.execute(delete(User).where(User.id == user_id))
+            s.commit()
+            return counts
 
     # ---------------- contas conectadas (/login) ----------------
     def save_account(
@@ -446,6 +520,7 @@ class Database:
                 "users_active": count(User, User.is_active == 1),
                 "users_paused": count(User, User.is_active == 1, User.is_paused == 1),
                 "users_inactive": count(User, User.is_active == 0),
+                "users_pending": count(User, User.approval.in_(("new", "pending"))),
                 "accounts_active": count(Account, Account.status == "active"),
                 "accounts_revoked": count(Account, Account.status == "revoked"),
                 "sources_active": count(Source, Source.status == "active"),

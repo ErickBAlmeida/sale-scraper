@@ -34,9 +34,12 @@ class Msg:
 class Harness:
     """Uma conversa com o bot: guarda user_data entre as mensagens, como o PTB."""
 
-    def __init__(self, tmp_path, client: FakeTelethon, **cfg):
+    def __init__(self, tmp_path, client: FakeTelethon, approved=True, **cfg):
         self.db = Database(str(tmp_path / "t.sqlite"), TZ)
         self.db.init(owner_chat_id=999)
+        if approved:
+            uid = self.db.get_or_create_user(USER, "u").id
+            self.db.set_approval(uid, "approved")
         self.cipher = SessionCipher(Fernet.generate_key().decode())
         self.client = client
         self.bot = FakeBot()

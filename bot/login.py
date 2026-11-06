@@ -31,6 +31,7 @@ from telethon.errors import (
     SessionPasswordNeededError,
 )
 
+from bot.access import ensure_access
 from core.crypto import mask_phone
 
 log = logging.getLogger("login")
@@ -42,12 +43,16 @@ CANCEL_LABEL = "Cancelar"
 
 CONSENT = (
     "🔐 <b>Conectar sua conta do Telegram</b>\n\n"
-    "O Sale Scraper lê os canais de ofertas <b>com a sua própria conta</b>. Para isso ele "
-    "precisa de uma sessão de login, igual a quando você entra no Telegram Desktop.\n\n"
+    "O Sale Scraper é um app <b>não oficial</b>, sem vínculo com o Telegram, que usa a "
+    "API do Telegram. Ele lê os canais de ofertas <b>com a sua própria conta</b>, e para "
+    "isso precisa de uma sessão de login, igual a quando você entra no Telegram Desktop.\n\n"
     "• A sessão é guardada criptografada e usada só para ler os canais que você cadastrar.\n"
     "• Você pode desconectar quando quiser: /logout ou "
-    "Telegram > Configurações > Dispositivos.\n"
-    "• Use por sua conta e risco: contas automatizadas ficam numa área cinzenta dos termos do Telegram.\n\n"
+    "Telegram > Configurações > Dispositivos. Para apagar tudo: /apagar_dados.\n"
+    "• Use por sua conta e risco: contas automatizadas ficam numa área cinzenta dos termos do Telegram.\n"
+    "• Detalhes: /privacidade\n\n"
+    "⚠️ Nunca envie seu código de login para outros bots ou pessoas. Aqui ele só é "
+    "aceito logo após você tocar no botão abaixo, e a mensagem é apagada na hora.\n\n"
     "Para continuar, toque em <b>📱 Compartilhar meu número</b> abaixo."
 )
 
@@ -129,9 +134,10 @@ async def _expired_reply(update: Update) -> int:
 
 # ---------------- passos ----------------
 async def login_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    u = update.effective_user
+    user = await ensure_access(update, context)
+    if user is None:
+        return ConversationHandler.END  # não aprovado: ensure_access já respondeu
     db = _db(context)
-    user = db.get_or_create_user(u.id, u.username)
     if db.has_active_account(user.id):
         acc = db.get_account(user.id)
         await update.message.reply_text(

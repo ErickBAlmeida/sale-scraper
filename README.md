@@ -71,7 +71,9 @@ vira a conta do admin automaticamente — sem precisar refazer o login.
 
 ## Uso
 
-1. `/start` e `/login` — toque em **📱 Compartilhar meu número**, receba o código no
+0. **Acesso:** o bot é fechado. Quem manda `/start` fica *aguardando* e o admin recebe
+   uma mensagem com **✅ Aprovar / ❌ Recusar**. Só aprovados usam os comandos (inclusive o `/login`).
+1. `/login` — toque em **📱 Compartilhar meu número**, receba o código no
    Telegram e digite-o **com espaços** (`1 2 3 4 5`; sem espaços o Telegram bloqueia o código).
    Se a conta tiver verificação em duas etapas, o bot pede a senha. As mensagens com
    código e senha são apagadas na hora.
@@ -85,17 +87,27 @@ Sem conta conectada, só `/start`, `/help` e `/login` funcionam.
 `/source_remove` só faz a sua conta sair do canal se foi o bot que entrou nele;
 canais que você já seguia continuam seguidos.
 
-**Admin (`OWNER_ID`):** `/status` (saúde do bot e das contas) e `/broadcast <msg>`.
+**Admin (`OWNER_ID`):** `/status` (saúde do bot e das contas), `/pendentes` (pedidos de
+acesso), `/revogar_acesso <id|@user>` (encerra a sessão e apaga os dados) e `/broadcast <msg>`.
 
 **Desconectar:** `/logout` encerra a sessão no Telegram. Também dá para encerrar em
 Telegram > Configurações > Dispositivos — o bot detecta em até 5 min e avisa o usuário.
 
-## Segurança
+**Privacidade:** `/privacidade` explica o que é guardado; `/apagar_dados` apaga tudo do
+usuário (sessão, canais, palavras, histórico) e sai dos canais em que o bot o fez entrar.
+Quem bloqueia o bot tem a sessão encerrada e apagada automaticamente.
 
+## Segurança e termos do Telegram
+
+- App **não oficial**: o `/start`, o `/login` e o `/privacidade` informam que ele usa a
+  API do Telegram e não tem vínculo com o Telegram (termos da API, item 2.2).
+- Acesso só com aprovação do admin — reduz o risco de o fluxo de login (que pede o
+  código, como golpes fazem) ser denunciado por desconhecidos.
 - Sessões das contas ficam criptografadas (Fernet) no banco; a chave fica só no `.env`.
   Quem tiver `.env` + `data/` tem acesso às contas conectadas: proteja os dois.
 - Telefone, código, senha e sessão nunca vão para o log.
 - O bot só aceita conectar o **próprio** número de quem pediu o `/login`.
+- Anti-spam: cada conta entra em no máximo `JOINS_PER_HOUR` canais novos por hora.
 - `MAX_ACCOUNTS` e `MAX_SOURCES` no `.env` limitam contas conectadas e canais por usuário.
 
 ## Testes

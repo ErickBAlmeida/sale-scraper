@@ -32,6 +32,7 @@ class Config:
     session_key: str      # chave Fernet que criptografa as sessões das contas dos usuários
     max_accounts: int     # quantas contas podem ficar conectadas ao mesmo tempo
     max_sources: int      # canais por usuário
+    joins_per_hour: int   # canais novos em que uma conta pode entrar por hora (anti-spam)
 
 
 def load_config() -> Config:
@@ -49,4 +50,5 @@ def load_config() -> Config:
         session_key=_require("SESSION_KEY"),
         max_accounts=int(os.getenv("MAX_ACCOUNTS", "20")),
         max_sources=int(os.getenv("MAX_SOURCES", "20")),
+        joins_per_hour=int(os.getenv("JOINS_PER_HOUR", "5")),
     )

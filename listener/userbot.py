@@ -7,6 +7,8 @@ palavras-chave do seu dono, e os alertas vão só para ele (via Bot API).
 import asyncio
 import html
 import logging
+import time
+from collections import deque
 
 from telegram.constants import ParseMode
 from telegram.error import Forbidden, RetryAfter, TelegramError
@@ -26,6 +28,16 @@ _SEND_THROTTLE_S = 0.05  # ~20 msg/s global, com margem sobre o limite do Telegr
 # Um único lock para todos os envios via Bot API (o limite de envio é do bot, não da conta).
 _SEND_LOCK = asyncio.Lock()
 
+_JOIN_WINDOW_S = 3600
+
+
+class JoinRateLimited(Exception):
+    """A conta já entrou em canais demais na última hora (proteção anti-spam)."""
+
+    def __init__(self, wait_seconds: float):
+        super().__init__(f"aguarde {int(wait_seconds)}s")
+        self.wait_seconds = wait_seconds
+
 
 class AccountListener:
     def __init__(self, client: TelegramClient, db, config, bot, user_id: int, chat_id: int):
@@ -42,6 +54,9 @@ class AccountListener:
         self.last_msg_by_channel: dict = {}  # canal -> datetime da última mensagem
         self.alerts_sent = 0
         self.alerts_failed = 0
+        self._join_times: deque = deque()  # momentos (monotonic) das últimas entradas em canais
+        # Chamado com o chat_id quando o dono bloqueia o bot (o ClientManager desconecta a conta).
+        self.on_blocked = None
 
     def is_connected(self) -> bool:
         return self.client.is_connected()
@@ -57,16 +72,37 @@ class AccountListener:
             except Exception as e:  # noqa: BLE001 - falha isolada não derruba o boot
                 log.warning("user=%s falha ao entrar em @%s: %s", self.user_id, src.channel, e)
 
-    async def join(self, channel: str):
+    def join_wait_seconds(self) -> float:
+        """Quanto falta para a conta poder entrar em outro canal (0 = pode agora)."""
+        limit = getattr(self.config, "joins_per_hour", 0)
+        if not limit:
+            return 0
+        current = time.monotonic()
+        while self._join_times and current - self._join_times[0] >= _JOIN_WINDOW_S:
+            self._join_times.popleft()
+        if len(self._join_times) < limit:
+            return 0
+        return _JOIN_WINDOW_S - (current - self._join_times[0])
+
+    async def join(self, channel: str, rate_limited: bool = False):
         """Faz a conta entrar no canal.
 
         Retorna (título, entrou_agora). `entrou_agora` é False se a conta já
         seguia o canal — nesse caso o /source_remove não deve sair dele.
+        Com `rate_limited`, levanta JoinRateLimited se a conta já entrou em
+        JOINS_PER_HOUR canais na última hora (entrar em muitos canais seguidos é
+        um padrão que o anti-spam do Telegram pune). Canais que a conta já segue
+        não contam.
         """
         entity = await self.client.get_entity(channel)
         already_member = getattr(entity, "left", True) is False
         if not already_member:
+            if rate_limited:
+                wait = self.join_wait_seconds()
+                if wait > 0:
+                    raise JoinRateLimited(wait)
             await self.client(JoinChannelRequest(entity))
+            self._join_times.append(time.monotonic())
         return getattr(entity, "title", None), not already_member
 
     async def leave(self, channel: str) -> None:
@@ -151,6 +187,9 @@ class AccountListener:
                 except Forbidden:
                     log.info("Usuário %s bloqueou o bot; marcando inativo", chat_id)
                     self.db.mark_user_inactive(chat_id)
+                    if self.on_blocked is not None:
+                        # fora do lock: o handler desconecta a conta (inclusive este listener)
+                        asyncio.create_task(self.on_blocked(chat_id))
                     return False
                 except TelegramError as e:
                     log.warning("Erro ao enviar para %s: %s", chat_id, e)

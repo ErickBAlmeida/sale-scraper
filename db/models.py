@@ -19,6 +19,8 @@ class User(Base):
     is_paused: Mapped[int] = mapped_column(Integer, default=0)
     quiet_start: Mapped[Optional[str]] = mapped_column(String(5), nullable=True)  # "00:00"
     quiet_end: Mapped[Optional[str]] = mapped_column(String(5), nullable=True)    # "08:00"
+    # Acesso ao bot: new (admin ainda não avisado) | pending | approved | rejected
+    approval: Mapped[str] = mapped_column(String(16), default="new")
     created_at: Mapped[str] = mapped_column(String(40))
 
 

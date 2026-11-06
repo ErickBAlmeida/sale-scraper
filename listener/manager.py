@@ -94,6 +94,7 @@ class ClientManager:
 
     async def _attach(self, user_id: int, chat_id: int, client: TelegramClient) -> AccountListener:
         listener = AccountListener(client, self.db, self.config, self.bot, user_id, chat_id)
+        listener.on_blocked = self.handle_blocked
         listener.register()
         self.listeners[user_id] = listener
         if client.is_connected():
@@ -124,6 +125,32 @@ class ClientManager:
                 await self.bot.send_message(chat_id, REVOKED_MSG)
             except Exception as e:  # noqa: BLE001
                 log.warning("user=%s não consegui avisar revogação: %s", user_id, e)
+
+    async def handle_blocked(self, chat_id: int) -> None:
+        """Usuário bloqueou o bot: encerra a sessão no Telegram e apaga a sessão salva.
+
+        Não dá para avisar (o bot está bloqueado). Canais e palavras ficam salvos;
+        se ele voltar, faz /login de novo.
+        """
+        user = self.db.get_user_by_chat_id(chat_id)
+        if user is None or self.db.get_account(user.id) is None:
+            return
+        await self.remove(user.id, log_out=True)
+        self.db.delete_account(user.id)
+        log.info("user=%s bloqueou o bot; sessão encerrada e apagada", user.id)
+
+    async def erase_user(self, user_id: int, keep_user_row: bool = False) -> dict:
+        """Apaga tudo do usuário. Antes, sai dos canais em que o bot fez a conta entrar
+        e encerra a sessão no Telegram (some de Configurações > Dispositivos)."""
+        listener = self.listeners.get(user_id)
+        if listener is not None and listener.is_connected():
+            for src in self.db.list_sources(user_id, active_only=True):
+                if src.joined_by_bot:
+                    await listener.leave(src.channel)
+        await self.remove(user_id, log_out=True)
+        counts = self.db.delete_user_data(user_id, keep_user_row=keep_user_row)
+        log.info("user=%s dados apagados %s", user_id, counts)
+        return counts
 
     async def stop_all(self) -> None:
         if self._health_task:

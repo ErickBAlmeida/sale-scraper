@@ -15,17 +15,33 @@ from telegram.ext import (
     ContextTypes,
 )
 
+from bot.access import (
+    DISCLAIMER,
+    ensure_access,
+    erase_data,
+    on_access_callback,
+    on_erase_callback,
+    pending,
+    privacy,
+    revoke_access,
+)
 from bot.login import build_login_handler, logout
 from core.price import format_brl, split_max_price
 from core.timeutils import format_duration, now
 from core.validation import validate_keyword
+from listener.userbot import JoinRateLimited
 
 log = logging.getLogger("bot")
 
-WELCOME = (
+INTRO = (
     "👋 <b>Bem-vindo ao Sale Scraper!</b>\n\n"
     "Eu monitoro canais de ofertas e te aviso quando aparece um produto que você procura.\n\n"
-    "<b>Como começar:</b>\n"
+    + DISCLAIMER
+)
+
+WELCOME = (
+    INTRO
+    + "\n\n<b>Como começar:</b>\n"
     "1. /login — conecte sua conta do Telegram (os canais são lidos com ela)\n"
     "2. <code>/source_add @canal</code> — escolha os canais de ofertas\n"
     "3. <code>/add iphone 18</code> — cadastre o que quer acompanhar\n\n"
@@ -35,7 +51,9 @@ WELCOME = (
 HELP = (
     "<b>Conta</b>\n"
     "/login — conecta sua conta do Telegram\n"
-    "/logout — desconecta sua conta\n\n"
+    "/logout — desconecta sua conta\n"
+    "/privacidade — o que é guardado e como apagar\n"
+    "/apagar_dados — apaga tudo sobre você\n\n"
     "<b>Canais</b>\n"
     "/source_add @canal — passa a monitorar um canal\n"
     "/source_remove @canal — para de monitorar\n"
@@ -76,14 +94,14 @@ def _is_admin(update: Update, context) -> bool:
 
 
 def requires_account(func):
-    """Bloqueia o comando para quem ainda não conectou a conta com /login."""
+    """Bloqueia o comando para quem não foi aprovado ou não conectou a conta com /login."""
 
     @functools.wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        u = update.effective_user
-        db = _db(context)
-        user = db.get_or_create_user(u.id, u.username)
-        if not db.has_active_account(user.id):
+        user = await ensure_access(update, context)
+        if user is None:
+            return None
+        if not _db(context).has_active_account(user.id):
             await update.message.reply_text(NEED_LOGIN)
             return None
         return await func(update, context)
@@ -107,8 +125,13 @@ def _clean_channel(raw: str):
 # ---------------- comandos do usuário ----------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     u = update.effective_user
-    _db(context).get_or_create_user(u.id, u.username)
-    await update.message.reply_text(WELCOME, parse_mode=ParseMode.HTML)
+    user = _db(context).get_or_create_user(u.id, u.username)
+    if u.id == _cfg(context).owner_id or user.approval == "approved":
+        await ensure_access(update, context)
+        await update.message.reply_text(WELCOME, parse_mode=ParseMode.HTML)
+        return
+    await update.message.reply_text(INTRO, parse_mode=ParseMode.HTML)
+    await ensure_access(update, context)  # responde "pedido enviado / em análise / recusado"
 
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -326,7 +349,15 @@ async def source_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         )
         return
     try:
-        title, joined_now = await listener.join(channel)
+        title, joined_now = await listener.join(channel, rate_limited=True)
+    except JoinRateLimited as e:
+        minutes = max(1, round(e.wait_seconds / 60))
+        await update.message.reply_text(
+            f"⏳ Sua conta já entrou em {_cfg(context).joins_per_hour} canais na última hora. "
+            f"Para não ser marcada como spam pelo Telegram, tente @{channel} de novo em "
+            f"~{minutes} min."
+        )
+        return
     except Exception as e:  # noqa: BLE001
         log.info("user=%s não entrou em @%s: %s", user.id, channel, e)
         await update.message.reply_text(
@@ -378,6 +409,7 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await asyncio.sleep(0.05)
         except Forbidden:
             _db(context).mark_user_inactive(cid)
+            await _manager(context).handle_blocked(cid)
         except RetryAfter as e:
             await asyncio.sleep(int(getattr(e, "retry_after", 5)) + 1)
         except TelegramError:
@@ -442,6 +474,8 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"👥 Usuários ativos: {st['users_active']}"
         + (f" ({st['users_paused']} pausados)" if st["users_paused"] else "")
         + (f" · {st['users_inactive']} bloquearam o bot" if st["users_inactive"] else ""),
+        f"⏳ Pedidos de acesso pendentes: {st['users_pending']}"
+        + (" (veja /pendentes)" if st["users_pending"] else ""),
         f"📡 Canais monitorados (todos os usuários): {st['sources_active']}",
         f"🔖 Palavras-chave: {st['keywords']}"
         + (f" ({st['keywords_with_price']} com preço máximo)" if st["keywords_with_price"] else ""),
@@ -482,6 +516,13 @@ def register_handlers(application: Application, db, config, manager, cipher) -> 
     application.add_handler(CommandHandler("source_remove", source_remove))
     application.add_handler(CommandHandler("broadcast", broadcast))
     application.add_handler(CommandHandler("status", status))
+    application.add_handler(CommandHandler("pendentes", pending))
+    application.add_handler(CommandHandler("revogar_acesso", revoke_access))
 
+    application.add_handler(CommandHandler("privacidade", privacy))
+    application.add_handler(CommandHandler("apagar_dados", erase_data))
+
+    application.add_handler(CallbackQueryHandler(on_access_callback, pattern=r"^access:"))
+    application.add_handler(CallbackQueryHandler(on_erase_callback, pattern=r"^erase:"))
     application.add_handler(CallbackQueryHandler(on_callback))
     application.add_error_handler(on_error)
