@@ -87,7 +87,8 @@ def test_full_login_with_spaced_code(tmp_path):
 
     async def run():
         assert (await h.send(login.login_start, "/login"))[0] == login.PHONE
-        assert "Compartilhar meu número" in h.last()
+        assert "Toque no botão grande" in h.last()      # mensagem curta com o teclado
+        assert "não oficial" in h.replies[-2]          # aviso de consentimento antes dela
         state, _ = await h.send(login.got_contact, contact=contact())
         assert state == login.CODE and h.client.phone == "+5511999994321"
         state, msg = await h.send(login.got_code, text="1 2 3 4 5")

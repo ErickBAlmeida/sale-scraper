@@ -1,7 +1,7 @@
 """/login e /logout: o usuário conecta a própria conta do Telegram ao bot.
 
 Fluxo (ConversationHandler):
-  /login → botão "📱 Compartilhar meu número" (só aceita o número do próprio usuário)
+  /login → botão "📱 COMPARTILHAR MEU NÚMERO" (só aceita o número do próprio usuário)
         → Telethon envia o código ao app do usuário → usuário digita COM ESPAÇOS
           (o Telegram invalida códigos de login enviados "limpos" numa mensagem)
         → se houver verificação em 2 etapas, pede a senha
@@ -53,7 +53,7 @@ CONSENT = (
     "• Detalhes: /privacidade\n\n"
     "⚠️ Nunca envie seu código de login para outros bots ou pessoas. Aqui ele só é "
     "aceito logo após você tocar no botão abaixo, e a mensagem é apagada na hora.\n\n"
-    "Para continuar, toque em <b>📱 Compartilhar meu número</b> abaixo."
+    "Para continuar, use o botão logo abaixo 👇"
 )
 
 CODE_PROMPT = (
@@ -64,11 +64,24 @@ CODE_PROMPT = (
 )
 
 
+PHONE_LABEL = "📱 COMPARTILHAR MEU NÚMERO"
+
+PHONE_PROMPT = (
+    "👇 <b>Toque no botão grande abaixo</b> para compartilhar seu número.\n\n"
+    "Não aparece? Toque no ícone de teclado (⌨️/🎛) ao lado do campo de mensagem.\n"
+    "Para desistir: /cancel"
+)
+
+
 def _phone_keyboard() -> ReplyKeyboardMarkup:
+    # O Telegram não permite mudar cor/estilo de botões; o destaque vem do tamanho:
+    # um único botão, sem resize_keyboard, ocupa o teclado inteiro e fica fixo.
     return ReplyKeyboardMarkup(
-        [[KeyboardButton("📱 Compartilhar meu número", request_contact=True)], [CANCEL_LABEL]],
-        resize_keyboard=True,
-        one_time_keyboard=True,
+        [[KeyboardButton(PHONE_LABEL, request_contact=True)]],
+        resize_keyboard=False,
+        one_time_keyboard=False,
+        is_persistent=True,
+        input_field_placeholder="👇 Toque no botão abaixo",
     )
 
 
@@ -156,7 +169,9 @@ async def login_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         "attempts": 0,
         "timer": asyncio.create_task(_expire(context, update.effective_chat.id)),
     }
-    await update.message.reply_text(CONSENT, parse_mode="HTML", reply_markup=_phone_keyboard())
+    await update.message.reply_text(CONSENT, parse_mode="HTML")
+    # Mensagem curta separada carregando o teclado: fica por último na tela, logo acima do botão.
+    await update.message.reply_text(PHONE_PROMPT, parse_mode="HTML", reply_markup=_phone_keyboard())
     return PHONE
 
 
@@ -167,7 +182,7 @@ async def got_contact(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     contact = update.message.contact
     if contact.user_id != update.effective_user.id:
         await update.message.reply_text(
-            "❌ Esse não é o seu número. Use o botão <b>📱 Compartilhar meu número</b> "
+            f"❌ Esse não é o seu número. Use o botão <b>{PHONE_LABEL}</b> "
             "(só dá para conectar a sua própria conta).",
             parse_mode="HTML",
             reply_markup=_phone_keyboard(),
@@ -212,7 +227,7 @@ async def got_contact(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
 async def phone_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text(
-        "Toque no botão <b>📱 Compartilhar meu número</b> (não digite o número).",
+        "Não precisa digitar o número 🙂\n\n" + PHONE_PROMPT,
         parse_mode="HTML",
         reply_markup=_phone_keyboard(),
     )
