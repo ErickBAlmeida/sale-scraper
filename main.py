@@ -69,7 +69,7 @@ async def run() -> None:
     await listener.join_all_sources()
     log.info("✅ Bot e listener em execução.")
     try:
-        await application.bot.send_message(cfg.owner_id, "✅ sale_scraper iniciado.")
+        await application.bot.send_message(cfg.owner_id, "✅ Sale Scraper iniciado.")
     except Exception:  # noqa: BLE001
         pass
 
@@ -88,6 +88,20 @@ async def run() -> None:
         await stop.wait()
     finally:
         log.info("Encerrando...")
+        # Avisa o dono antes de desligar o bot (só funciona em encerramento normal:
+        # ⏹ no Docker, `docker compose stop/down`, Ctrl+C). Queda de energia ou
+        # processo morto à força não passam por aqui.
+        try:
+            await asyncio.wait_for(
+                application.bot.send_message(
+                    cfg.owner_id,
+                    "🔴 Sale Scraper encerrado. Alertas pausados até o bot voltar.",
+                ),
+                timeout=10,
+            )
+            log.info("Aviso de encerramento enviado ao dono.")
+        except Exception as e:  # noqa: BLE001
+            log.warning("Não consegui avisar o encerramento: %s", e)
         for shutdown in (
             application.updater.stop,
             application.stop,

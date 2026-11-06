@@ -6,3 +6,4 @@ services:
     volumes:
       - ./data:/app/data   # persiste sessão do userbot, SQLite e logs
     restart: "no"   # sem início automático: suba manualmente com `docker compose up -d`
+    stop_grace_period: 30s   # tempo para avisar no Telegram e desligar antes do kill forçado
