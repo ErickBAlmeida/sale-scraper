@@ -5,4 +5,4 @@ services:
     env_file: .env
     volumes:
       - ./data:/app/data   # persiste sessão do userbot, SQLite e logs
-    restart: unless-stopped
+    restart: "no"   # sem início automático: suba manualmente com `docker compose up -d`

@@ -64,7 +64,9 @@ docker compose logs -f
 ```
 
 O volume `./data` persiste sessão, banco SQLite e logs entre reinícios.
-`restart: unless-stopped` garante que volte após crash/reboot.
+`restart: "no"`: o container **não** inicia sozinho (nem após reboot ou crash).
+Suba manualmente com `docker compose up -d` ou pelo ▶ no Docker Desktop.
+Para rodar 24/7 sem supervisão, troque para `restart: unless-stopped`.
 
 ## Uso
 
