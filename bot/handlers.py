@@ -17,10 +17,10 @@ from core.validation import validate_keyword
 log = logging.getLogger("bot")
 
 WELCOME = (
-    "👋 <b>Bem-vindo ao Alerta de Promoções!</b>\n\n"
+    "👋 <b>Bem-vindo ao Sale Scraper!</b>\n\n"
     "Eu monitoro canais de ofertas e te aviso quando aparece um produto que você procura.\n\n"
     "Comece cadastrando uma palavra-chave:\n"
-    "<code>/add rtx 4070</code>\n\n"
+    "<code>/add iphone 18</code>\n\n"
     "Use /help para ver todos os comandos."
 )
 
