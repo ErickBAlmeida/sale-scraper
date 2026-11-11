@@ -21,3 +21,18 @@ env/
 .idea/
 Thumbs.db
 .DS_Store
+
+# Terraform (o .terraform.lock.hcl continua versionado)
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+*.tfvars
+*.tfvars.json
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+*.tfplan

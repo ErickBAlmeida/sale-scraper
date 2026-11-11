@@ -5,11 +5,15 @@ terraform {
       source  = "hashicorp/google"
       version = "~> 5.0"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
   }
 }
 
 provider "google" {
-  project = "***REMOVED***"
+  project = var.project_id
   region  = "us-central1"
   zone    = "us-central1-a"
 }
