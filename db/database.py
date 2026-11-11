@@ -6,12 +6,14 @@ os dados possam ser usados fora do escopo da sessão sem lazy-loading.
 import logging
 import os
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import List, Optional
 
 from sqlalchemy import create_engine, delete, func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
+from core.dedup import OfferFingerprint
 from core.matching import matches as term_matches
 from core.price import split_max_price, within_max
 from core.text import normalize
@@ -104,6 +106,21 @@ class Database:
         self._migrate_user_approval()
         self._migrate_max_price()
         self._migrate_sources_per_user(owner_chat_id)
+        self._migrate_sent_alert_fingerprint()
+
+    def _migrate_sent_alert_fingerprint(self) -> None:
+        """Bancos anteriores à dedup entre canais: cria as colunas da impressão
+        digital em sent_alerts. Alertas antigos ficam sem ela (só o hash vale)."""
+        with self.engine.begin() as conn:
+            cols = {row[1] for row in conn.execute(text("PRAGMA table_info(sent_alerts)"))}
+            for name, ddl in (
+                ("term", "VARCHAR(80)"),
+                ("price", "REAL"),
+                ("product_keys", "VARCHAR(512)"),
+            ):
+                if name not in cols:
+                    conn.execute(text(f"ALTER TABLE sent_alerts ADD COLUMN {name} {ddl}"))
+                    log.info("Migração: coluna sent_alerts.%s criada", name)
 
     def _migrate_user_approval(self) -> None:
         """Bancos anteriores à aprovação de acesso: só fica aprovado quem já conectou
@@ -479,7 +496,35 @@ class Database:
                 )
             ) is not None
 
-    def record_sent(self, user_id: int, offer_hash: str, channel: str, link: Optional[str]) -> None:
+    def recent_fingerprints(self, user_id: int, hours: float) -> List[OfferFingerprint]:
+        """Impressões digitais dos alertas enviados ao usuário nas últimas `hours` horas.
+
+        Compara sent_at como texto ISO: funciona porque todos os timestamps usam o
+        mesmo fuso (self.tz) e, portanto, o mesmo offset.
+        """
+        cutoff = (now(self.tz) - timedelta(hours=hours)).isoformat()
+        with self.Session() as s:
+            rows = s.execute(
+                select(SentAlert.term, SentAlert.price, SentAlert.product_keys).where(
+                    SentAlert.user_id == user_id,
+                    SentAlert.sent_at >= cutoff,
+                    SentAlert.term.is_not(None),
+                )
+            ).all()
+        return [
+            OfferFingerprint(r.term, r.price, frozenset((r.product_keys or "").split()))
+            for r in rows
+        ]
+
+    def record_sent(
+        self,
+        user_id: int,
+        offer_hash: str,
+        channel: str,
+        link: Optional[str],
+        fingerprint: Optional[OfferFingerprint] = None,
+    ) -> None:
+        fp = fingerprint
         with self.Session() as s:
             s.add(
                 SentAlert(
@@ -488,6 +533,9 @@ class Database:
                     source_channel=channel,
                     message_link=link,
                     sent_at=now_iso(self.tz),
+                    term=fp.term if fp else None,
+                    price=fp.price if fp else None,
+                    product_keys=" ".join(sorted(fp.product_keys)) if fp else None,
                 )
             )
             try:

@@ -78,6 +78,7 @@ def _fake(db, user_id, connected=True, msgs=None, has_listener=True):
             "msgs_received": sum(x.msgs_received for x in listeners.values()),
             "alerts_sent": sum(x.alerts_sent for x in listeners.values()),
             "alerts_failed": 0,
+            "alerts_deduped": 2,
         },
     )
     app = SimpleNamespace(
@@ -120,6 +121,7 @@ def test_status_report(db):
     assert "Ligado há 2h 05min" in text
     assert "Contas conectadas: 1/1 ✅" in text
     assert "Mensagens dos canais: 7" in text
+    assert "Reposts filtrados: 2" in text
     assert "Seus canais (2)" in text
     assert "@fraguas84oficial: 7 msg (última há 3min)" in text
     assert "@linksbrazil: 0 msg (nenhuma ainda)" in text

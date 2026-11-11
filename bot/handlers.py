@@ -447,6 +447,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"📨 Mensagens dos canais: {ms['msgs_received']}",
         f"🔔 Alertas enviados: {ms['alerts_sent']}"
         + (f" (⚠️ {ms['alerts_failed']} falharam)" if ms["alerts_failed"] else ""),
+        f"🔁 Reposts filtrados: {ms.get('alerts_deduped', 0)}",
         "",
     ]
     if mine is None:

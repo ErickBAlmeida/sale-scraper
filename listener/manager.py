@@ -199,4 +199,5 @@ class ClientManager:
             "msgs_received": sum(x.msgs_received for x in ls),
             "alerts_sent": sum(x.alerts_sent for x in ls),
             "alerts_failed": sum(x.alerts_failed for x in ls),
+            "alerts_deduped": sum(x.alerts_deduped for x in ls),
         }
