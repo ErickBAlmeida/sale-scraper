@@ -15,6 +15,7 @@ from telegram.error import Forbidden, RetryAfter, TelegramError
 from telethon import TelegramClient, events
 from telethon.tl.functions.channels import JoinChannelRequest, LeaveChannelRequest
 
+from core.dedup import OfferFingerprint, extract_product_keys, is_duplicate
 from core.matching import offer_hash
 from core.price import extract_price, format_brl
 from core.text import normalize
@@ -55,6 +56,10 @@ class AccountListener:
         self.alerts_sent = 0
         self.alerts_failed = 0
         self._join_times: deque = deque()  # momentos (monotonic) das últimas entradas em canais
+        # Serializa checar-duplicata -> enviar -> registrar: sem isso, o mesmo post
+        # chegando de dois canais quase juntos passaria nas duas checagens.
+        self._dispatch_lock = asyncio.Lock()
+        self.alerts_deduped = 0  # reposts de outros canais descartados
         # Chamado com o chat_id quando o dono bloqueia o bot (o ClientManager desconecta a conta).
         self.on_blocked = None
 
@@ -142,18 +147,30 @@ class AccountListener:
         if in_quiet_hours(m.quiet_start, m.quiet_end, now(self.config.timezone)):
             return
         ohash = offer_hash(text, channel)
-        if self.db.already_sent(m.user_id, ohash):
-            return
-        link = f"https://t.me/{username}/{msg_id}"
-        label = m.raw_term
-        if m.max_price is not None:
-            label += f" (até {format_brl(m.max_price)})"
-        ok = await self._send_alert(m.chat_id, label, channel, text, link)
-        if ok:
-            self.alerts_sent += 1
-            self.db.record_sent(m.user_id, ohash, channel, link)
-        else:
-            self.alerts_failed += 1
+        fingerprint = OfferFingerprint(m.term, price, extract_product_keys(text))
+        window_h = getattr(self.config, "dedup_window_hours", 24)
+        async with self._dispatch_lock:
+            if self.db.already_sent(m.user_id, ohash):
+                return
+            if window_h > 0 and is_duplicate(
+                fingerprint, self.db.recent_fingerprints(m.user_id, window_h)
+            ):
+                self.alerts_deduped += 1
+                log.info(
+                    "dup user=%s term=%s price=%s channel=@%s (repost já alertado)",
+                    m.user_id, m.term, price, channel,
+                )
+                return
+            link = f"https://t.me/{username}/{msg_id}"
+            label = m.raw_term
+            if m.max_price is not None:
+                label += f" (até {format_brl(m.max_price)})"
+            ok = await self._send_alert(m.chat_id, label, channel, text, link)
+            if ok:
+                self.alerts_sent += 1
+                self.db.record_sent(m.user_id, ohash, channel, link, fingerprint)
+            else:
+                self.alerts_failed += 1
         log.info(
             "match user=%s term=%s price=%s max=%s channel=@%s sent=%s",
             m.user_id, m.term, price, m.max_price, channel, ok,

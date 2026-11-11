@@ -87,6 +87,7 @@ def fake_config(**over):
     base = dict(
         owner_id=999, timezone=TZ, api_id=1, api_hash="x",
         max_accounts=20, max_sources=20, max_keywords=10, joins_per_hour=5,
+        dedup_window_hours=24,
     )
     base.update(over)
     return SimpleNamespace(**base)

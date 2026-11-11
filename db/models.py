@@ -77,5 +77,9 @@ class SentAlert(Base):
     source_channel: Mapped[str] = mapped_column(String(128))
     message_link: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
     sent_at: Mapped[str] = mapped_column(String(40))
+    # Impressão digital da oferta (core.dedup), para reconhecer reposts de outros canais
+    term: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    product_keys: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)  # separadas por espaço
 
     __table_args__ = (UniqueConstraint("user_id", "offer_hash", name="uq_user_offer"),)
