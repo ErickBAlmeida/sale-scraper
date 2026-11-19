@@ -49,16 +49,16 @@ WELCOME = (
 )
 
 HELP = (
-    "<b>Conta</b>\n"
+    "<b>Conta</b>\n\n"
     "/login — conecta sua conta do Telegram\n"
     "/logout — desconecta sua conta\n"
     "/privacidade — o que é guardado e como apagar\n"
     "/apagar_dados — apaga tudo sobre você\n\n"
-    "<b>Canais</b>\n"
+    "<b>Canais</b>\n\n"
     "/source_add @canal — passa a monitorar um canal\n"
     "/source_remove @canal — para de monitorar\n"
     "/sources — seus canais monitorados\n\n"
-    "<b>Alertas</b>\n"
+    "<b>Alertas</b>\n\n"
     "/add &lt;palavra&gt; — cadastra um alerta (ex.: <code>/add air fryer</code>)\n"
     "   com preço máximo: <code>/add iphone 18 &lt;10000</code> (só avisa até R$ 10000)\n"
     "/list — lista seus alertas\n"
@@ -69,6 +69,34 @@ HELP = (
     "/settings — horário silencioso e preferências\n"
     "/stats — quantos alertas você recebeu\n"
     "/help — esta ajuda"
+)
+
+ADMIN_HELP = (
+    "<b>Conta</b>\n\n"
+    "/login — conecta sua conta do Telegram\n"
+    "/logout — desconecta sua conta\n"
+    "/privacidade — o que é guardado e como apagar\n"
+    "/apagar_dados — apaga tudo sobre você\n\n"
+    "<b>Canais</b>\n\n"
+    "/source_add @canal — passa a monitorar um canal\n"
+    "/source_remove @canal — para de monitorar\n"
+    "/sources — seus canais monitorados\n\n"
+    "<b>Alertas</b>\n\n"
+    "/add &lt;palavra&gt; — cadastra um alerta (ex.: <code>/add air fryer</code>)\n"
+    "   com preço máximo: <code>/add iphone 18 &lt;10000</code> (só avisa até R$ 10000)\n"
+    "/list — lista seus alertas\n"
+    "/remove &lt;nº|palavra&gt; — remove um alerta\n"
+    "/clear — apaga todos os alertas\n"
+    "/pause — pausa as notificações\n"
+    "/resume — retoma as notificações\n"
+    "/settings — horário silencioso e preferências\n"
+    "/stats — quantos alertas você recebeu\n"
+    "/help — esta ajuda"
+    "\n\n<b>Admin</b>\n\n"
+    "/status — saúde do bot (admin)\n"
+    "/broadcast &lt;mensagem&gt; — envia mensagem para todos os usuários\n"
+    "/pendentes — lista pedidos de acesso pendentes\n"
+    "/revogar_acesso &lt;id|@user&gt; — revoga acesso de um usuário"
 )
 
 NEED_LOGIN = (
@@ -135,7 +163,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(HELP, parse_mode=ParseMode.HTML)
+    if not _is_admin(update, context):
+        await update.message.reply_text(HELP, parse_mode=ParseMode.HTML)
+        return
+    await update.message.reply_text(ADMIN_HELP, parse_mode=ParseMode.HTML)
 
 
 @requires_account
