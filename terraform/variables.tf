@@ -1,4 +1,4 @@
 variable "project_id" {
-  description = "ID do projeto no GCP"
+  description = "sale-scraper-514301"
   type        = string
 }
