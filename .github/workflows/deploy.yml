@@ -1,0 +1,97 @@
+name: CI/CD
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch: # permite rodar o deploy manualmente pela aba Actions
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Testes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependências
+        run: pip install -r requirements.txt pytest
+
+      - name: Rodar testes
+        run: pytest -q
+
+  deploy:
+    name: Deploy na VM (GCP)
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # Um deploy por vez; um push novo espera o anterior terminar (nunca cancela no meio).
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - name: Atualizar e reiniciar o bot via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          APP_DIR: /home/${{ secrets.VM_USER }}/sale-scraper
+          DEPLOY_SHA: ${{ github.sha }}
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          envs: APP_DIR,DEPLOY_SHA
+          command_timeout: 20m # o build na e2-micro é lento
+          script: |
+            set -euo pipefail
+            cd "$APP_DIR"
+
+            echo "==> Backup do banco antes do deploy"
+            mkdir -p "$HOME/backups"
+            if [ -f data/sale_scraper.sqlite ]; then
+              python3 - <<'PY'
+            import os, sqlite3
+            src = sqlite3.connect("file:data/sale_scraper.sqlite?mode=ro", uri=True)
+            dst = sqlite3.connect(os.path.expanduser(f"~/backups/pre_deploy_{os.environ['DEPLOY_SHA'][:7]}.sqlite"))
+            src.backup(dst)
+            dst.close(); src.close()
+            PY
+              # mantém só os 5 backups de deploy mais recentes
+              ls -1t "$HOME"/backups/pre_deploy_*.sqlite | tail -n +6 | xargs -r rm -f
+            else
+              echo "Banco ainda não existe, pulando backup."
+            fi
+
+            echo "==> Atualizando código para origin/main"
+            # reset --hard não toca em arquivos ignorados (data/, .env).
+            # NUNCA usar 'git clean -x' aqui: apagaria o banco e as sessões.
+            git fetch --prune origin main
+            git reset --hard origin/main
+            echo "Versão: $(git rev-parse --short HEAD)"
+
+            echo "==> Build e restart do container"
+            docker compose up -d --build --remove-orphans
+
+            echo "==> Verificando se o bot subiu"
+            sleep 20
+            if ! docker compose ps --status running --services | grep -qx bot \
+               || [ "$(docker inspect -f '{{.RestartCount}}' sale_scraper)" != "0" ]; then
+              echo "ERRO: o bot não está rodando de forma estável."
+              docker compose ps
+              docker compose logs --tail 50 bot
+              exit 1
+            fi
+            docker compose logs --tail 15 bot
+
+            echo "==> Limpando imagens e cache de build"
+            docker image prune -f
+            docker builder prune -f
+
+            echo "Deploy concluído."
