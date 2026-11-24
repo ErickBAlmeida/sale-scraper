@@ -8,7 +8,7 @@ from cryptography.fernet import Fernet
 from telegram.ext import ConversationHandler
 
 from bot import login
-from bot.handlers import list_kw, source_add, source_remove
+from bot.handlers import add, list_kw, source_add, source_remove
 from core.crypto import SessionCipher
 from db.database import Database
 from listener.manager import ClientManager
@@ -278,3 +278,18 @@ def test_code_formats(tmp_path, text, ok):
 
     state = asyncio.run(run())
     assert (state == ConversationHandler.END) is ok
+
+
+def test_add_shows_updated_list(tmp_path):
+    h = _logged_in(tmp_path)
+
+    async def run():
+        await h.send(add, "/add", args=["rtx", "4070"])
+        first = h.last()
+        await h.send(add, "/add", args=["ryzen", "5", "<500"])
+        return first, h.last()
+
+    first, second = asyncio.run(run())
+    assert "criado" in first and "Lista atualizada" in first and "1. rtx 4070" in first
+    assert "criado" in second
+    assert "1. rtx 4070" in second and "2. ryzen 5 — até" in second

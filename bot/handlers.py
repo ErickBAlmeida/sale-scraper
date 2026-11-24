@@ -197,20 +197,33 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user.id, term, raw, _cfg(context).max_keywords, max_price
     )
     limit = f" até {format_brl(max_price)}" if max_price is not None else ""
+    name = html.escape(raw)
     if status == "limit":
-        await update.message.reply_text(
+        msg = (
             f"❌ Você atingiu o limite de {_cfg(context).max_keywords} alertas. "
             f"Use /remove para liberar espaço."
         )
     elif status == "dup":
-        await update.message.reply_text(f'ℹ️ Você já tem um alerta para "{raw}"{limit}.')
+        msg = f'ℹ️ Você já tem um alerta para "{name}"{limit}.'
     elif status == "updated":
         novo = f"preço máximo {format_brl(max_price)}" if max_price is not None else "sem limite de preço"
-        await update.message.reply_text(f'🔄 Alerta "{raw}" atualizado: {novo}.')
+        msg = f'🔄 Alerta "{name}" atualizado: {novo}.'
     else:
-        await update.message.reply_text(
-            f'✅ Alerta "{raw}"{limit} criado. Vou te avisar quando aparecer em uma oferta.'
-        )
+        msg = f'✅ Alerta "{name}"{limit} criado. Vou te avisar quando aparecer em uma oferta.'
+    kws = _db(context).list_keywords(user.id)
+    if kws:
+        msg += "\n\n" + _format_keywords(kws, "🔖 <b>Lista atualizada:</b>")
+    await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+
+
+def _format_keywords(kws, title: str) -> str:
+    """Lista numerada (HTML) dos alertas, na mesma ordem usada pelo /remove <número>."""
+    lines = [
+        f"{i + 1}. {html.escape(k.raw_term)}"
+        + (f" — até {format_brl(k.max_price)}" if k.max_price is not None else "")
+        for i, k in enumerate(kws)
+    ]
+    return title + "\n" + "\n".join(lines)
 
 
 @requires_account
@@ -221,12 +234,7 @@ async def list_kw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not kws:
         await update.message.reply_text("Você ainda não tem alertas. Use /add <palavra>.")
         return
-    lines = [
-        f"{i + 1}. {html.escape(k.raw_term)}"
-        + (f" — até {format_brl(k.max_price)}" if k.max_price is not None else "")
-        for i, k in enumerate(kws)
-    ]
-    await update.message.reply_text("🔖 <b>Seus alertas:</b>\n" + "\n".join(lines),
+    await update.message.reply_text(_format_keywords(kws, "🔖 <b>Seus alertas:</b>"),
                                     parse_mode=ParseMode.HTML)
 
 
