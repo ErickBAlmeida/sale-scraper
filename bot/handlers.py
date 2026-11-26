@@ -249,9 +249,16 @@ async def remove(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     u = update.effective_user
     user = _db(context).get_or_create_user(u.id, u.username)
     ok = _db(context).remove_keyword(user.id, arg)
-    await update.message.reply_text(
-        "✅ Alerta removido." if ok else "❌ Alerta não encontrado. Veja /list."
-    )
+    if not ok:
+        await update.message.reply_text("❌ Alerta não encontrado. Veja /list.")
+        return
+    msg = "✅ Alerta removido."
+    kws = _db(context).list_keywords(user.id)
+    if kws:
+        msg += "\n\n" + _format_keywords(kws, "🔖 <b>Lista atualizada:</b>")
+    else:
+        msg += "\n\nVocê não tem mais alertas. Use /add &lt;palavra&gt;."
+    await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
 
 @requires_account
