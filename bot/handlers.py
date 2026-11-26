@@ -63,6 +63,7 @@ HELP = (
     "   com preço máximo: <code>/add iphone 18 &lt;10000</code> (só avisa até R$ 10000)\n"
     "/list — lista seus alertas\n"
     "/remove &lt;nº|palavra&gt; — remove um alerta\n"
+    "/replace &lt;nº&gt; &lt;novo texto&gt; — corrige um alerta (ex.: <code>/replace 2 rtx 4070</code>)\n"
     "/clear — apaga todos os alertas\n"
     "/pause — pausa as notificações\n"
     "/resume — retoma as notificações\n"
@@ -86,6 +87,7 @@ ADMIN_HELP = (
     "   com preço máximo: <code>/add iphone 18 &lt;10000</code> (só avisa até R$ 10000)\n"
     "/list — lista seus alertas\n"
     "/remove &lt;nº|palavra&gt; — remove um alerta\n"
+    "/replace &lt;nº&gt; &lt;novo texto&gt; — corrige um alerta (ex.: <code>/replace 2 rtx 4070</code>)\n"
     "/clear — apaga todos os alertas\n"
     "/pause — pausa as notificações\n"
     "/resume — retoma as notificações\n"
@@ -250,6 +252,49 @@ async def remove(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "✅ Alerta removido." if ok else "❌ Alerta não encontrado. Veja /list."
     )
+
+
+@requires_account
+async def replace(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    usage = (
+        "Uso: /replace <nº> <novo texto> [<preço máximo]\n"
+        "Ex.: /replace 2 rtx 4070\n"
+        "Ex.: /replace 2 iphone 18 <9000\n"
+        "Sem preço, o preço máximo atual é mantido. Veja os números em /list."
+    )
+    if len(context.args) < 2 or not context.args[0].isdigit():
+        await update.message.reply_text(usage)
+        return
+    position = int(context.args[0])
+    full = " ".join(context.args[1:]).strip()
+    raw, max_price = split_max_price(full)
+    if not raw:
+        await update.message.reply_text("❌ Informe o novo texto antes do preço.\n" + usage)
+        return
+    if max_price is not None and max_price <= 0:
+        await update.message.reply_text("❌ O preço máximo precisa ser maior que zero.")
+        return
+    term, err = validate_keyword(raw)
+    if err:
+        await update.message.reply_text(f"❌ A palavra-chave {err}")
+        return
+    u = update.effective_user
+    user = _db(context).get_or_create_user(u.id, u.username)
+    status, old = _db(context).replace_keyword(
+        user.id, position, term, raw, max_price, keep_price=max_price is None
+    )
+    if status == "not_found":
+        await update.message.reply_text(f"❌ Não existe o alerta nº {position}. Veja /list.")
+        return
+    if status == "dup":
+        await update.message.reply_text(
+            f'ℹ️ Você já tem outro alerta para "{html.escape(raw)}".', parse_mode=ParseMode.HTML
+        )
+        return
+    msg = f'✏️ Alerta nº {position} alterado: "{html.escape(old.raw_term)}" → "{html.escape(raw)}".'
+    kws = _db(context).list_keywords(user.id)
+    msg += "\n\n" + _format_keywords(kws, "🔖 <b>Lista atualizada:</b>")
+    await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
 
 @requires_account
@@ -545,6 +590,7 @@ def register_handlers(application: Application, db, config, manager, cipher) -> 
     application.add_handler(CommandHandler("add", add))
     application.add_handler(CommandHandler("list", list_kw))
     application.add_handler(CommandHandler("remove", remove))
+    application.add_handler(CommandHandler("replace", replace))
     application.add_handler(CommandHandler("clear", clear))
     application.add_handler(CommandHandler("pause", pause))
     application.add_handler(CommandHandler("resume", resume))

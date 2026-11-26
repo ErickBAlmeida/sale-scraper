@@ -80,7 +80,7 @@ vira a conta do admin automaticamente — sem precisar refazer o login.
 2. `/source_add @canal` — monitora um canal público (a sua conta entra nele, se ainda não segue).
 3. `/add rtx 4070` ou `/add ryzen 5 5500 <500` (com preço máximo).
 
-**Demais comandos:** `/list`, `/remove 2`, `/clear`, `/pause`, `/resume`, `/settings`,
+**Demais comandos:** `/list`, `/remove 2`, `/replace 2 rtx 4070` (corrige o alerta nº 2), `/clear`, `/pause`, `/resume`, `/settings`,
 `/sources`, `/source_remove @canal`, `/stats`, `/logout`, `/help`.
 Sem conta conectada, só `/start`, `/help` e `/login` funcionam.
 
