@@ -118,6 +118,29 @@ def test_remove_accepts_price_suffix(db):
     assert db.list_keywords(uid) == []
 
 
+def test_replace_keyword_keeps_position_and_price(db):
+    uid = _user(db)
+    db.add_keyword(uid, "rtx 4070", "rtx 4070", 10, None)
+    db.add_keyword(uid, "ryzn 5 5500", "Ryzn 5 5500", 10, 500.0)
+    status, old = db.replace_keyword(uid, 2, "ryzen 5 5500", "Ryzen 5 5500")
+    assert status == "ok" and old.raw_term == "Ryzn 5 5500"
+    kws = db.list_keywords(uid)
+    assert [k.term for k in kws] == ["rtx 4070", "ryzen 5 5500"]
+    assert kws[1].max_price == 500.0 and kws[1].raw_term == "Ryzen 5 5500"
+
+
+def test_replace_keyword_with_new_price_not_found_and_dup(db):
+    uid = _user(db)
+    db.add_keyword(uid, "rtx 4070", "rtx 4070", 10, None)
+    db.add_keyword(uid, "b550m", "B550M", 10, 800.0)
+    assert db.replace_keyword(uid, 2, "b550m", "B550M", 700.0, keep_price=False)[0] == "ok"
+    assert db.list_keywords(uid)[1].max_price == 700.0
+    assert db.replace_keyword(uid, 3, "x", "x")[0] == "not_found"
+    assert db.replace_keyword(uid, 0, "x", "x")[0] == "not_found"
+    assert db.replace_keyword(uid, 2, "rtx 4070", "RTX 4070")[0] == "dup"
+    assert db.replace_keyword(uid, 1, "rtx 4070", "RTX 4070")[0] == "ok"  # só muda a grafia
+
+
 def test_migration_adds_column_and_converts_old_keywords(tmp_path):
     """Banco antigo (sem max_price) com "Ryzen 5 5500 <500" salvo como texto."""
     path = tmp_path / "old.sqlite"

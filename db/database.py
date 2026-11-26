@@ -7,7 +7,7 @@ import logging
 import os
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from sqlalchemy import create_engine, delete, func, select, text
 from sqlalchemy.exc import IntegrityError
@@ -446,6 +446,43 @@ class Database:
             s.execute(delete(Keyword).where(Keyword.id == target.id, Keyword.user_id == user_id))
             s.commit()
         return True
+
+    def replace_keyword(
+        self,
+        user_id: int,
+        position: int,
+        term: str,
+        raw: str,
+        max_price: Optional[float] = None,
+        keep_price: bool = True,
+    ) -> Tuple[str, Optional[KeywordDTO]]:
+        """Troca o texto do alerta nº `position` (ordem do /list), mantendo a posição.
+
+        Com keep_price=True o preço máximo atual é preservado; senão usa `max_price`.
+        Retorna (status, alerta antigo): 'ok', 'not_found' ou 'dup' (já existe outro
+        alerta com o novo texto).
+        """
+        kws = self.list_keywords(user_id)
+        idx = position - 1
+        if not 0 <= idx < len(kws):
+            return "not_found", None
+        old = kws[idx]
+        if any(k.term == term and k.id != old.id for k in kws):
+            return "dup", old
+        with self.Session() as s:
+            kw = s.scalar(select(Keyword).where(Keyword.id == old.id, Keyword.user_id == user_id))
+            if kw is None:
+                return "not_found", None
+            kw.term = term
+            kw.raw_term = raw
+            if not keep_price:
+                kw.max_price = max_price
+            try:
+                s.commit()
+            except IntegrityError:
+                s.rollback()
+                return "dup", old
+        return "ok", old
 
     def clear_keywords(self, user_id: int) -> int:
         with self.Session() as s:
