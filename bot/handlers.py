@@ -3,6 +3,7 @@ import asyncio
 import functools
 import html
 import logging
+import time
 from datetime import datetime
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -17,6 +18,7 @@ from telegram.ext import (
 
 from bot.access import (
     DISCLAIMER,
+    _describe,
     ensure_access,
     erase_data,
     on_access_callback,
@@ -69,6 +71,7 @@ HELP = (
     "/resume — retoma as notificações\n"
     "/settings — horário silencioso e preferências\n"
     "/stats — quantos alertas você recebeu\n"
+    "/sugestao &lt;texto&gt; — envia uma sugestão para o desenvolvedor\n"
     "/help — esta ajuda"
 )
 
@@ -93,6 +96,7 @@ ADMIN_HELP = (
     "/resume — retoma as notificações\n"
     "/settings — horário silencioso e preferências\n"
     "/stats — quantos alertas você recebeu\n"
+    "/sugestao &lt;texto&gt; — envia uma sugestão para o desenvolvedor\n"
     "/help — esta ajuda"
     "\n\n<b>Admin</b>\n\n"
     "/status — saúde do bot (admin)\n"
@@ -169,6 +173,49 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(HELP, parse_mode=ParseMode.HTML)
         return
     await update.message.reply_text(ADMIN_HELP, parse_mode=ParseMode.HTML)
+
+
+SUGGEST_MAX_LEN = 1000
+SUGGEST_COOLDOWN_S = 60
+
+
+async def suggest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/sugestao <texto>: encaminha a sugestão do usuário para o admin."""
+    user = await ensure_access(update, context)
+    if user is None:
+        return
+    text = " ".join(context.args).strip()
+    if not text:
+        await update.message.reply_text(
+            "Uso: /sugestao <texto>\nEx.: /sugestao poderia avisar também por e-mail"
+        )
+        return
+    if len(text) > SUGGEST_MAX_LEN:
+        await update.message.reply_text(
+            f"❌ A sugestão é muito longa (máximo de {SUGGEST_MAX_LEN} caracteres)."
+        )
+        return
+    u = update.effective_user
+    last = context.application.bot_data.setdefault("suggest_last", {})
+    elapsed = time.monotonic() - last.get(u.id, float("-inf"))
+    if elapsed < SUGGEST_COOLDOWN_S:
+        await update.message.reply_text(
+            f"⏳ Aguarde {int(SUGGEST_COOLDOWN_S - elapsed) + 1}s para enviar outra sugestão."
+        )
+        return
+    try:
+        await context.bot.send_message(
+            _cfg(context).owner_id,
+            f"💡 <b>Sugestão</b> de {_describe(u)}\n\n{html.escape(text)}",
+            parse_mode=ParseMode.HTML,
+        )
+    except TelegramError as e:
+        log.warning("Não consegui entregar a sugestão de %s: %s", u.id, e)
+        await update.message.reply_text("❌ Não consegui enviar agora. Tente de novo mais tarde.")
+        return
+    last[u.id] = time.monotonic()
+    log.info("user=%s enviou uma sugestão", user.id)
+    await update.message.reply_text("💡 Valeu pela sugestão! Ela foi enviada para o desenvolvedor.")
 
 
 @requires_account
@@ -604,6 +651,7 @@ def register_handlers(application: Application, db, config, manager, cipher) -> 
     application.add_handler(CommandHandler("settings", settings))
     application.add_handler(CommandHandler("sources", sources))
     application.add_handler(CommandHandler("stats", stats))
+    application.add_handler(CommandHandler("sugestao", suggest))
 
     application.add_handler(CommandHandler("source_add", source_add))
     application.add_handler(CommandHandler("source_remove", source_remove))
