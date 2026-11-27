@@ -306,3 +306,43 @@ def test_broadcast_only_reaches_approved(w):
     w.bot.sent.clear()
     w.run(broadcast, user_id=OWNER, args=["oi"])
     assert [c for c, _ in w.bot.sent] == [321]
+
+
+# ---------------- /sugestao ----------------
+def _approve(w, chat_id=USER):
+    w.db.set_approval(w.db.get_or_create_user(chat_id, "fulano").id, "approved")
+
+
+def test_suggestion_reaches_admin(w):
+    from bot.handlers import suggest
+
+    _approve(w)
+    w.run(suggest, args=["avisar", "por", "<e-mail>"])
+    [msg] = w.admin_msgs()
+    assert "Sugestão" in msg and "@fulano" in msg
+    assert "avisar por &lt;e-mail&gt;" in msg                 # texto do usuário escapado
+    assert "Valeu" in w.replies[-1]
+
+
+def test_suggestion_needs_approval_and_text(w):
+    from bot.handlers import suggest
+
+    w.run(suggest, args=["oi"])                               # não aprovado: vira pedido de acesso
+    assert not any("Sugestão" in m for m in w.admin_msgs())
+    _approve(w)
+    w.bot.sent.clear()
+    w.run(suggest)                                            # sem texto
+    assert "Uso: /sugestao" in w.replies[-1] and not w.bot.sent
+    w.run(suggest, args=["x" * 1001])                         # longa demais
+    assert "muito longa" in w.replies[-1] and not w.bot.sent
+
+
+def test_suggestion_cooldown(w):
+    from bot.handlers import suggest
+
+    _approve(w)
+    ctx = w.ctx(["primeira"])
+    asyncio.run(suggest(w.update(), ctx))
+    asyncio.run(suggest(w.update(), w.ctx(["segunda"])))      # mesmo bot_data: dentro dos 60s
+    assert len(w.admin_msgs()) == 1
+    assert "Aguarde" in w.replies[-1]
