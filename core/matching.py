@@ -5,17 +5,28 @@ import re
 from core.text import normalize
 
 
-def matches(normalized_text: str, normalized_term: str) -> bool:
-    """Correspondência por limite de palavra (word-boundary).
+_WORD = re.compile(r"\w+")
 
-    Evita falsos positivos de substring: 'moc' não casa 'promocao'.
-    Frases casam se a sequência aparecer no texto ('air fryer').
+
+def matches(normalized_text: str, normalized_term: str) -> bool:
+    """Casa se TODAS as palavras do termo aparecerem no texto, em qualquer ordem.
+
+    Cada palavra é comparada por limite de palavra (word-boundary), o que evita
+    falsos positivos de substring: 'moc' não casa 'promocao'.
+    Palavras extras no post não atrapalham: 'asus tuf b550m-plus' casa
+    'Asus TUF GAMING B550M-Plus'. Hífens e pontuação separam palavras,
+    então 'b550m-plus' também casa 'B550M Plus'.
     Espera os dois argumentos JÁ normalizados (core.text.normalize).
     """
     if not normalized_text or not normalized_term:
         return False
-    pattern = r"\b" + re.escape(normalized_term) + r"\b"
-    return re.search(pattern, normalized_text) is not None
+    words = _WORD.findall(normalized_term)
+    if not words:
+        return False
+    return all(
+        re.search(r"\b" + re.escape(w) + r"\b", normalized_text) is not None
+        for w in words
+    )
 
 
 def offer_hash(text: str, channel: str) -> str:

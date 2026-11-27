@@ -22,6 +22,13 @@ def test_matches_phrase():
     assert not matches(normalize("fryer de ar"), normalize("air fryer"))
 
 
+def test_matches_words_with_extra_words_in_between():
+    post = normalize("Placa-Mãe AMD AM4 Asus TUF GAMING B550M-Plus - 90MB14A0-C1BAY0")
+    assert matches(post, normalize("Asus Tuf B550M-PLUS"))
+    assert matches(post, normalize("b550m plus asus"))
+    assert not matches(post, normalize("asus tuf b550m-plus wifi"))
+
+
 def test_matches_empty():
     assert not matches("", "rtx")
     assert not matches("rtx 4070", "")
