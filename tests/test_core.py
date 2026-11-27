@@ -29,6 +29,16 @@ def test_matches_words_with_extra_words_in_between():
     assert not matches(post, normalize("asus tuf b550m-plus wifi"))
 
 
+def test_matches_requires_words_close_together():
+    post = normalize(
+        "Projetor Smart Portátil Full Hd 4k Android 13 Wi-fi "
+        "Bluetooth Tv Mini Projetor Hy300 Home Theater"
+    )
+    assert not matches(post, normalize("Smart TV"))
+    assert matches(normalize("TV Smart Samsung 50 4K"), normalize("smart tv"))
+    assert matches(normalize("Smart TV LG 50"), normalize("smart tv"))
+
+
 def test_matches_empty():
     assert not matches("", "rtx")
     assert not matches("rtx 4070", "")
