@@ -336,11 +336,15 @@ async def _finish(update: Update, context) -> int:
         f"Seus {n_sources} canal(is) já estão sendo monitorados."
         if n_sources
         else "Agora cadastre um canal de ofertas: <code>/source_add @canal</code>\n"
-        "e as palavras que quer acompanhar: <code>/add ryzen 5 5500 &lt;500</code>"
+        "e as palavras que quer acompanhar: <code>/add iPhone 18 &lt;10000</code>"
     )
     await update.message.reply_text(
         f"✅ <b>Conta {masked} conectada!</b>\n\n{tip}", parse_mode="HTML"
     )
+    # Mostra todos os comandos logo após o login.
+    # Import local: bot.handlers importa este módulo (evita import circular).
+    from bot.handlers import help_cmd
+    await help_cmd(update, context)
     return ConversationHandler.END
 
 

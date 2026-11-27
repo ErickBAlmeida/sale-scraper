@@ -44,7 +44,7 @@ WELCOME = (
     + "\n\n<b>Como começar:</b>\n"
     "1. /login — conecte sua conta do Telegram (os canais são lidos com ela)\n"
     "2. <code>/source_add @canal</code> — escolha os canais de ofertas\n"
-    "3. <code>/add iphone 18</code> — cadastre o que quer acompanhar\n\n"
+    "3. <code>/add iPhone 18</code> — cadastre o que quer acompanhar\n\n"
     "Use /help para ver todos os comandos."
 )
 
@@ -59,8 +59,8 @@ HELP = (
     "/source_remove @canal — para de monitorar\n"
     "/sources — seus canais monitorados\n\n"
     "<b>Alertas</b>\n\n"
-    "/add &lt;palavra&gt; — cadastra um alerta (ex.: <code>/add air fryer</code>)\n"
-    "   com preço máximo: <code>/add iphone 18 &lt;10000</code> (só avisa até R$ 10000)\n"
+    "/add &lt;palavra&gt; — cadastra um alerta (ex.: <code>/add iPhone 18</code>)\n"
+    "   com preço máximo: <code>/add iPhone 18 &lt;10000</code> (só avisa até R$ 10000)\n"
     "/list — lista seus alertas\n"
     "/remove &lt;nº|palavra&gt; — remove um alerta\n"
     "/replace &lt;nº&gt; &lt;novo texto&gt; — corrige um alerta (ex.: <code>/replace 2 rtx 4070</code>)\n"
@@ -83,8 +83,8 @@ ADMIN_HELP = (
     "/source_remove @canal — para de monitorar\n"
     "/sources — seus canais monitorados\n\n"
     "<b>Alertas</b>\n\n"
-    "/add &lt;palavra&gt; — cadastra um alerta (ex.: <code>/add air fryer</code>)\n"
-    "   com preço máximo: <code>/add iphone 18 &lt;10000</code> (só avisa até R$ 10000)\n"
+    "/add &lt;palavra&gt; — cadastra um alerta (ex.: <code>/add iPhone 18</code>)\n"
+    "   com preço máximo: <code>/add iPhone 18 &lt;10000</code> (só avisa até R$ 10000)\n"
     "/list — lista seus alertas\n"
     "/remove &lt;nº|palavra&gt; — remove um alerta\n"
     "/replace &lt;nº&gt; &lt;novo texto&gt; — corrige um alerta (ex.: <code>/replace 2 rtx 4070</code>)\n"
@@ -175,8 +175,8 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     usage = (
         "Uso: /add <palavra-chave> [<preço máximo]\n"
-        "Ex.: /add rtx 4070\n"
-        "Ex.: /add iphone 18 <10000"
+        "Ex.: /add iPhone 18\n"
+        "Ex.: /add iPhone 18 <10000"
     )
     full = " ".join(context.args).strip()
     if not full:

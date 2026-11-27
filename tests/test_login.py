@@ -101,7 +101,8 @@ def test_full_login_with_spaced_code(tmp_path):
     acc = h.db.get_account(user.id)
     assert acc.status == "active" and acc.phone_masked == "+55•••••••4321"
     assert h.cipher.decrypt(acc.session_enc) == "SESS"
-    assert "conectada" in h.last()
+    assert "conectada" in h.replies[-2]
+    assert "/help — esta ajuda" in h.last()     # ajuda com os comandos logo após o login
     assert "login" not in h.user_data           # nada pendente
 
 
